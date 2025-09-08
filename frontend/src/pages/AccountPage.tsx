@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 import { useAuth } from '../contexts/AuthContext';
+import { ArrowUpOnSquareIcon } from '@heroicons/react/24/outline';
 
 export const AccountPage: React.FC = () => {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export const AccountPage: React.FC = () => {
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [avatar, setAvatar] = useState(user?.imageUrl || 'https://via.placeholder.com/150');
+  const [qrCode, setQrCode] = useState<string | null>(null);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -20,6 +22,17 @@ export const AccountPage: React.FC = () => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatar(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleQrCodeSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setQrCode(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -61,7 +74,7 @@ export const AccountPage: React.FC = () => {
             <h1 className="text-2xl font-bold text-center mb-6">Edit Account</h1>
             <div className="space-y-4">
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700">Name</label>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700">Username</label>
                 <input
                   type="text"
                   id="name"
@@ -90,13 +103,33 @@ export const AccountPage: React.FC = () => {
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 />
               </div>
-              <button
-                onClick={handleSave}
-                className="w-full bg-gray-900 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-800 transition duration-300"
-              >
-                Save Changes
-              </button>
             </div>
+            <div className="mt-6">
+              <div className="flex justify-between items-center">
+                <p className="text-sm font-medium text-gray-700">Upload your QR code</p>
+                <input
+                  type="file"
+                  id="qr-code-upload"
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleQrCodeSelect}
+                />
+                <label htmlFor="qr-code-upload" className="cursor-pointer">
+                  <ArrowUpOnSquareIcon className="w-6 h-6 text-gray-600 hover:text-gray-800" />
+                </label>
+              </div>
+              {qrCode && (
+                <div className="mt-4">
+                  <img src={qrCode} alt="QR Code" className="w-32 h-32 mx-auto" />
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleSave}
+              className="w-full mt-6 bg-[#52bf52] text-white font-semibold py-2 px-4 rounded-lg hover:bg-[#47a647] transition duration-300"
+            >
+              Save Changes
+            </button>
           </div>
         </div>
       </div>
