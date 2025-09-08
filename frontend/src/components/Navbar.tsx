@@ -3,6 +3,7 @@ import { Menu, MenuButton, MenuItem, MenuItems, Transition } from "@headlessui/r
 import { useAuth } from "../contexts/AuthContext";
 import logo from "../assets/logo-transparent-x256.png";
 import { Fragment } from "react";
+import { Link } from "react-router-dom";
 
 const Navbar = () => {
   const { logout } = useAuth();
@@ -43,6 +44,16 @@ const Navbar = () => {
           >
             <MenuItems className="absolute right-0 z-10 mt-2 w-56 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
               <div className="py-1">
+                <MenuItem>
+                  {({ focus }) => (
+                    <Link to="/account" className={`${
+                        focus ? "bg-gray-100 text-gray-900" : "text-gray-700"
+                      } block w-full px-4 py-2 text-left text-sm`}
+                    >
+                      Account
+                    </Link>
+                  )}
+                </MenuItem>
                 <MenuItem>
                   {({ focus }) => (
                     <button
