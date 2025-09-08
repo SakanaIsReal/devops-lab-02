@@ -1,0 +1,62 @@
+{
+  "compilerOptions": {
+    // Specify the root folder within your source files
+    "rootDir": "src",
+
+    // Specify where to output the compiled JS files
+    "outDir": "build",
+
+    // Ensure your code is compatible with modern browsers
+    "target": "es5",
+
+    // How to handle JSX: 'react-jsx' is the modern mode for React 17+
+    "jsx": "react-jsx",
+
+    // Which module system to use for the output JS (e.g., 'es2015', 'commonjs')
+    "module": "esnext",
+
+    // How to look for module files (node, classic, etc.)
+    "moduleResolution": "node",
+
+    // Allow default imports from modules with no default export
+    "allowSyntheticDefaultImports": true,
+
+    // Emit additional JS to support importing from modules in the right way
+    "esModuleInterop": true,
+
+    // Generate sourcemaps for easier debugging
+    "sourceMap": true,
+
+    // Enable all strict type-checking options (HIGHLY RECOMMENDED for learning!)
+    "strict": true,
+
+    // Don't allow `any` as a type (forces you to be more explicit)
+    "noImplicitAny": true,
+
+    // List of libraries to include, crucial for React/JSX and the DOM
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+
+    // Allow JavaScript files to be compiled (useful if migrating)
+    "allowJs": true,
+
+    // Skip type checking for declaration files (speeds up compilation)
+    "skipLibCheck": true,
+
+    // Force consistent casing in file names
+    "forceConsistentCasingInFileNames": true,
+
+    // Ensure a file can be a module (important for imports/exports)
+    "isolatedModules": true,
+
+    // Don't emit output (just do type checking) - often handled by bundler
+    "noEmit": true
+  },
+  // Which files to include in the compilation
+  "include": [
+    "src/**/*" // This means "all files in the src folder and its subfolders"
+  ]
+}
