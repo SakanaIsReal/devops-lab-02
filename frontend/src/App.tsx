@@ -11,6 +11,7 @@ import { GroupDetailPage } from './pages/GroupDetailPage';
 import CreateGroupPage from './pages/CreateGroupPage';
 import PayPage from './pages/PayPage';
 import SignUpPage from './pages/SignUpPage';
+import { AccountPage } from './pages/AccountPage';
 // Import our Protected Route component
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PublicRoute } from './components/PublicRoute';
@@ -81,6 +82,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <PayPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/account"
+            element={
+              <ProtectedRoute>
+                <AccountPage />
               </ProtectedRoute>
             }
           />
