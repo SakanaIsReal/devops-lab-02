@@ -4,5 +4,6 @@ public record GroupDto(
         Long id,
         Long ownerUserId,
         String name,
-        String coverImageUrl
+        String coverImageUrl,
+        Long memberCount
 ) {}

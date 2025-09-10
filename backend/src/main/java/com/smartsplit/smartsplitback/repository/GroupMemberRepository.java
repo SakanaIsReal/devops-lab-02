@@ -25,4 +25,6 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, GroupM
     default boolean existsSharedGroup(Long me, Long target) {
         return existsSharedGroupInt(me, target) > 0;
     }
+    @Query(value = "SELECT COUNT(*) FROM group_members WHERE group_id = :groupId", nativeQuery = true)
+    long countByGroupId(@Param("groupId") Long groupId);
 }

@@ -18,4 +18,8 @@ public class GroupMemberService {
     public boolean exists(Long groupId, Long userId){ return repo.existsByGroup_IdAndUser_Id(groupId, userId); }
     public GroupMember save(GroupMember m){ return repo.save(m); }
     public void delete(Long groupId, Long userId){ repo.deleteById(new GroupMemberId(groupId, userId)); }
+    public long countMembers(Long groupId) {
+        return repo.countByGroupId(groupId);
+    }
+
 }
