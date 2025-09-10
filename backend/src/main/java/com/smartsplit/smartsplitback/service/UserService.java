@@ -4,7 +4,7 @@ import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.smartsplit.smartsplitback.model.dto.UserPublicDto;
 import java.util.List;
 
 @Service
@@ -18,4 +18,12 @@ public class UserService {
     public User create(User u){ return repo.save(u); }
     public User update(User u){ return repo.save(u); }
     public void delete(Long id){ repo.deleteById(id); }
+
+    public List<User> searchByName(String q) {
+        return repo.findTop20ByUserNameContainingIgnoreCase(q == null ? "" : q.trim());
+    }
+
+    public static UserPublicDto toPublicDto(User u) {
+        return new UserPublicDto(u.getId(), u.getEmail(), u.getUserName(), u.getPhone(), u.getAvatarUrl());
+    }
 }

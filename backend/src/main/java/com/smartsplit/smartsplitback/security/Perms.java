@@ -8,6 +8,11 @@ import com.smartsplit.smartsplitback.repository.GroupMemberRepository;
 import com.smartsplit.smartsplitback.repository.GroupRepository;
 import org.springframework.stereotype.Component;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.server.ResponseStatusException;
+import java.lang.reflect.Method;
 import java.util.Objects;
 
 @Component("perm")
@@ -37,7 +42,42 @@ public class Perms {
         this.payments = payments;
         this.expenseItems = expenseItems;
     }
+    public Long currentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return extractUserId(auth);
+    }
 
+    /** แบบที่คุณต้องการ */
+    private Long extractUserId(Authentication auth) {
+        if (auth == null || auth.getPrincipal() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No authentication");
+        }
+        Object p = auth.getPrincipal();
+
+        // ลองเรียกเมธอดยอดฮิตที่โปรเจกต์มักใช้เก็บ user id
+        for (String m : new String[]{"getId", "getUid", "getUserId"}) {
+            try {
+                Method md = p.getClass().getMethod(m);
+                Object v = md.invoke(p);
+                if (v != null) return Long.valueOf(String.valueOf(v));
+            } catch (Exception ignored) {}
+        }
+
+        // สำรอง: ถ้า subject ใน token เป็น userId ตรง ๆ
+        try {
+            return Long.valueOf(auth.getName());
+        } catch (Exception e) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Cannot resolve user id from token (principal=" + p.getClass().getSimpleName() + ")"
+            );
+        }
+    }
+    public boolean canViewUser(Long targetUserId) {
+        Long me = sec.currentUserId();
+        if (me == null) return false;
+        return isAdmin() || isSelf(targetUserId) || members.existsSharedGroup(me, targetUserId);
+    }
     public boolean isAdmin() {
         return sec.isAdmin();
     }
@@ -131,7 +171,7 @@ public class Perms {
         return payments.existsByIdAndExpense_Id(paymentId, expenseId);
     }
 
-    /** ✅ ดู payment ได้เมื่อ payment ⊂ expense และเป็นสมาชิกกลุ่มนั้น (หรือ admin) */
+
     public boolean canViewExpensePayment(Long expenseId, Long paymentId) {
         if (!paymentBelongsToExpense(expenseId, paymentId)) return false;
         if (isAdmin()) return true;
@@ -139,7 +179,7 @@ public class Perms {
         return groupId != null && isGroupMember(groupId);
     }
 
-    /** ✅ จัดการ payment ได้เมื่อ payment ⊂ expense และผู้ใช้จัดการ expense นั้นได้ */
+
     public boolean canManageExpensePayment(Long expenseId, Long paymentId) {
         if (!paymentBelongsToExpense(expenseId, paymentId)) return false;
         return canManageExpense(expenseId);
@@ -163,15 +203,14 @@ public class Perms {
         return canManageExpense(expenseId);
     }
 
-    /* ===================== เพิ่มใหม่: ตรวจ share แบบผูก 3 ชั้น ===================== */
 
-    /** share ต้องเป็นของ item ที่อยู่ใต้ expense นี้จริง */
+
     public boolean shareBelongsToItemInExpense(Long expenseId, Long itemId, Long shareId) {
         if (expenseId == null || itemId == null || shareId == null) return false;
         return shares.existsByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId);
     }
 
-    /** จัดการ share ได้เมื่อ share ⊂ item ⊂ expense และผู้ใช้จัดการ expense นั้นได้ */
+
     public boolean canManageExpenseShare(Long expenseId, Long itemId, Long shareId) {
         if (!shareBelongsToItemInExpense(expenseId, itemId, shareId)) return false;
         return canManageExpense(expenseId);
