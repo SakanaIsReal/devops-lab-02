@@ -1,0 +1,71 @@
+package com.smartsplit.smartsplitback.service;
+
+import com.smartsplit.smartsplitback.model.ExpenseItemShare;
+import com.smartsplit.smartsplitback.repository.ExpenseItemShareRepository;
+import com.smartsplit.smartsplitback.repository.ExpensePaymentRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class ExpenseSettlementService {
+
+    private final ExpenseItemShareRepository shares;
+    private final ExpensePaymentRepository payments;
+
+    public ExpenseSettlementService(ExpenseItemShareRepository shares,
+                                    ExpensePaymentRepository payments) {
+        this.shares = shares;
+        this.payments = payments;
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal owedForUser(Long expenseId, Long userId) {
+        // ดึง shares ของ user ใน expense (พร้อม item.amount)
+        var list = shares.fetchForExpenseAndUser(expenseId, userId);
+        BigDecimal sum = BigDecimal.ZERO;
+
+        for (ExpenseItemShare s : list) {
+            BigDecimal itemAmt = (s.getExpenseItem() != null && s.getExpenseItem().getAmount() != null)
+                    ? s.getExpenseItem().getAmount() : BigDecimal.ZERO;
+
+            BigDecimal v = (s.getShareValue() != null) ? s.getShareValue() : BigDecimal.ZERO;
+            BigDecimal pct = (s.getSharePercent() != null) ? s.getSharePercent() : BigDecimal.ZERO;
+
+            // rule: share = value + (percent/100 * item.amount)
+            BigDecimal byPct = itemAmt.multiply(pct).divide(new BigDecimal("100"));
+            sum = sum.add(v).add(byPct);
+        }
+        return sum;
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal paidForUser(Long expenseId, Long userId) {
+        return payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto userSettlement(Long expenseId, Long userId) {
+        var owed = owedForUser(expenseId, userId);
+        var paid = paidForUser(expenseId, userId);
+        boolean settled = paid.compareTo(owed) >= 0;
+        BigDecimal remaining = owed.subtract(paid);
+        if (remaining.signum() < 0) remaining = BigDecimal.ZERO;
+        return new com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto(expenseId, userId, owed, paid, settled, remaining);
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto> allSettlements(Long expenseId) {
+        // รวมรายชื่อ: คนที่มี share + คนที่มี payment VERIFIED
+        Set<Long> participants = new HashSet<>(shares.findParticipantIdsByExpense(expenseId));
+        participants.addAll(payments.findVerifiedPayerIdsByExpense(expenseId));
+
+        return participants.stream()
+                .sorted()
+                .map(uid -> userSettlement(expenseId, uid))
+                .collect(Collectors.toList());
+    }
+}

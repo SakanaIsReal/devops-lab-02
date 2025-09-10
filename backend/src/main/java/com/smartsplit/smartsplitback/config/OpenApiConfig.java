@@ -1,0 +1,29 @@
+package com.smartsplit.smartsplitback.config;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class OpenApiConfig {
+
+    @Bean
+    public OpenAPI customOpenAPI() {
+        final String securitySchemeName = "bearerAuth";
+
+        return new OpenAPI()
+                .components(new Components()
+                        .addSecuritySchemes(securitySchemeName,
+                                new SecurityScheme()
+                                        .type(SecurityScheme.Type.HTTP)   // ใช้ HTTP auth
+                                        .scheme("bearer")                 // ประเภท Bearer
+                                        .bearerFormat("JWT")              // ระบุว่าเป็น JWT
+                        )
+                )
+                // Global security: ทุก API ต้องใช้ Bearer token
+                .addSecurityItem(new SecurityRequirement().addList(securitySchemeName));
+    }
+}

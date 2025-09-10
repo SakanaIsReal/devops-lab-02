@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  db:
+    image: mysql:8
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: test_database
+    ports:
+      - "1111:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+
+  api:
+    build: .
+    image: smartsplit-back:dev
+    container_name: smartsplit-api
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/test_database
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      # ถ้ามี timezone/charset อยากกำหนดเพิ่มก็ใส่ที่ URL ได้ เช่น ?serverTimezone=UTC&useSSL=false
+volumes:
+  dbdata:
