@@ -1,4 +1,3 @@
-// src/main/java/com/smartsplit/smartsplitback/service/ExpensePaymentService.java
 package com.smartsplit.smartsplitback.service;
 
 import com.smartsplit.smartsplitback.model.Expense;
@@ -26,18 +25,19 @@ public class ExpensePaymentService {
     private final ExpenseRepository expenses;
     private final UserRepository users;
     private final PaymentReceiptRepository receipts;
+    private final FileStorageService storage;
 
     public ExpensePaymentService(ExpensePaymentRepository payments,
                                  ExpenseRepository expenses,
                                  UserRepository users,
-                                 PaymentReceiptRepository receipts) {
+                                 PaymentReceiptRepository receipts,
+                                 FileStorageService storage) {
         this.payments = payments;
         this.expenses = expenses;
         this.users = users;
         this.receipts = receipts;
+        this.storage = storage;
     }
-
-    /* ============ READ ============ */
 
     @Transactional(readOnly = true)
     public List<ExpensePayment> listByExpense(Long expenseId) {
@@ -49,13 +49,12 @@ public class ExpensePaymentService {
         return payments.findById(paymentId).orElse(null);
     }
 
-    /** ดึง payment โดยบังคับว่าอยู่ใต้ expenseId */
+
     @Transactional(readOnly = true)
     public ExpensePayment getInExpense(Long expenseId, Long paymentId) {
         return payments.findByIdAndExpense_Id(paymentId, expenseId).orElse(null);
     }
 
-    /* ============ CREATE / UPDATE / DELETE ============ */
 
     @Transactional
     public ExpensePayment create(Long expenseId, Long fromUserId, BigDecimal amount) {
@@ -70,7 +69,7 @@ public class ExpensePaymentService {
 
         ExpensePayment p = new ExpensePayment();
         p.setExpense(exp);
-        p.setFromUser(fromUser);                            // << ใช้ความสัมพันธ์กับ User (ไม่ใช่แค่ id)
+        p.setFromUser(fromUser);
         p.setAmount(scaleMoney(amount));
         p.setStatus(PaymentStatus.PENDING);
         return payments.save(p);
@@ -84,7 +83,6 @@ public class ExpensePaymentService {
         return payments.save(p);
     }
 
-    /** เปลี่ยนสถานะ โดยบังคับว่า payment ∈ expense */
     @Transactional
     public ExpensePayment setStatusInExpense(Long expenseId, Long paymentId, PaymentStatus status) {
         ExpensePayment p = payments.findByIdAndExpense_Id(paymentId, expenseId)
@@ -95,24 +93,33 @@ public class ExpensePaymentService {
 
     @Transactional
     public void delete(Long paymentId) {
+
+        receipts.findByPayment_Id(paymentId).ifPresent(r -> {
+            storage.deleteByUrl(r.getFileUrl());
+            receipts.delete(r);
+        });
+
         if (!payments.existsById(paymentId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found");
         }
         payments.deleteById(paymentId);
     }
 
-    /** ลบ โดยบังคับว่า payment ∈ expense */
     @Transactional
     public void deleteInExpense(Long expenseId, Long paymentId) {
-        if (!payments.existsByIdAndExpense_Id(paymentId, expenseId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found in this expense");
-        }
-        payments.deleteById(paymentId);
+        ExpensePayment p = payments.findByIdAndExpense_Id(paymentId, expenseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found in this expense"));
+
+
+        receipts.findByPayment_Id(p.getId()).ifPresent(r -> {
+            storage.deleteByUrl(r.getFileUrl());
+            receipts.delete(r);
+        });
+
+        payments.deleteById(p.getId());
     }
 
-    /* ============ RECEIPT ============ */
 
-    /** แนบ/อัปเดตสลิปให้กับ payment */
     @Transactional
     public PaymentReceipt attachReceipt(Long paymentId, String fileUrl) {
         if (fileUrl == null || fileUrl.isBlank()) {
@@ -122,30 +129,34 @@ public class ExpensePaymentService {
         ExpensePayment p = payments.findById(paymentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
 
-        // ถ้ามีใบเสร็จอยู่แล้ว → อัปเดต, ถ้าไม่มีก็สร้างใหม่
-        PaymentReceipt r = receipts.findByPayment_Id(paymentId).orElseGet(PaymentReceipt::new);
+        if (receipts.findByPayment_Id(paymentId).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt already exists for this payment");
+        }
+
+        PaymentReceipt r = new PaymentReceipt();
         r.setExpensePayment(p);
         r.setFileUrl(fileUrl.trim());
         return receipts.save(r);
     }
 
-    /** แนบสลิป โดยบังคับว่า payment ∈ expense */
     @Transactional
     public PaymentReceipt attachReceiptInExpense(Long expenseId, Long paymentId, String fileUrl) {
         if (!payments.existsByIdAndExpense_Id(paymentId, expenseId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found in this expense");
         }
+        if (receipts.findByPayment_Id(paymentId).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt already exists for this payment");
+        }
         return attachReceipt(paymentId, fileUrl);
     }
 
-    /* ============ AGG ============ */
+
 
     @Transactional(readOnly = true)
     public BigDecimal sumVerified(Long expenseId) {
         return payments.sumVerifiedAmountByExpenseId(expenseId);
     }
 
-    /* ============ UTIL ============ */
 
     private BigDecimal scaleMoney(BigDecimal v) {
         return v.setScale(2, RoundingMode.HALF_UP);
