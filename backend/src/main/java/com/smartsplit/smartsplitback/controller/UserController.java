@@ -15,7 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
-// --- Swagger/OpenAPI annotations ---
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -65,14 +65,14 @@ public class UserController {
 
             HttpServletRequest req) {
 
-        // 1) สร้าง user เพื่อให้ได้ id
+
         var u = new User();
         u.setEmail(in.email());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
         u = svc.create(u);
 
-        // 2) ถ้ามีไฟล์แนบ → บันทึกไฟล์และตั้ง URL
+
         if (avatar != null && !avatar.isEmpty()) {
             String url = storage.save(avatar, "avatars", "user-" + u.getId(), req);
             u.setAvatarUrl(url);
@@ -82,12 +82,12 @@ public class UserController {
             u.setQrCodeUrl(url);
         }
 
-        // 3) อัปเดต user เก็บ URL
+
         u = svc.update(u);
         return toDto(u);
     }
 
-    /** เผื่อ client เก่า: สร้างแบบ JSON ล้วน */
+
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public UserDto createJson(@RequestBody UserDto in) {
@@ -100,7 +100,7 @@ public class UserController {
         return toDto(svc.create(u));
     }
 
-    /** อัปเดตแบบ JSON ล้วน (ไม่แนบไฟล์) */
+
     @PreAuthorize("@perm.isAdmin() or @perm.isSelf(#id)")
     @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public UserDto updateJson(@PathVariable Long id, @RequestBody UserDto in) {
@@ -141,12 +141,12 @@ public class UserController {
         var u = svc.get(id);
         if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
 
-        // อัปเดตฟิลด์ข้อความ
+
         if (in.email()    != null) u.setEmail(in.email());
         if (in.userName() != null) u.setUserName(in.userName());
         if (in.phone()    != null) u.setPhone(in.phone());
 
-        // แทนที่รูป (ลบเก่าก่อน)
+
         if (avatar != null && !avatar.isEmpty()) {
             storage.deleteByUrl(u.getAvatarUrl());
             String url = storage.save(avatar, "avatars", "user-" + u.getId(), req);
@@ -161,7 +161,7 @@ public class UserController {
         return toDto(svc.update(u));
     }
 
-    /** ลบผู้ใช้ + ลบไฟล์รูปเดิมก่อน */
+
     @PreAuthorize("@perm.isAdmin() or @perm.isSelf(#id)")
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -175,7 +175,7 @@ public class UserController {
         svc.delete(id);
     }
 
-    /* mapper */
+
     private static UserDto toDto(User u) {
         return new UserDto(
                 u.getId(),
