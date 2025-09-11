@@ -52,7 +52,10 @@ const PayPage: React.FC = () => {
       <Navbar />
       <div className="p-4">
         <CircleBackButton onClick={() => navigate(-1)} />
-        <h1 className="text-2xl font-bold text-left my-4">Pay</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-left" style={{color: '#2c4359'}}>Pay your dept</h1>
+          <h2 className="text-lg font-semibold text-left" style={{color: '#2c4359'}}>QR CODE</h2>
+        </div>
         <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6 text-center">
           <p className="text-lg font-semibold mb-2">Payer: {paymentDetails.payerName}</p>
           <img src={paymentDetails.qrCodeUrl} alt="QR Code" className="mx-auto w-48 h-48 mb-4" />
@@ -82,7 +85,8 @@ const PayPage: React.FC = () => {
 
           <button
             onClick={handlePay}
-            className="w-full bg-gray-900 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-800 transition duration-300"
+            className="w-full text-white font-semibold py-2 px-4 rounded-lg transition duration-300"
+            style={{backgroundColor: '#0d78f2'}}
           >
             Pay
           </button>

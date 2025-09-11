@@ -52,6 +52,12 @@ export const BillDetailPage: React.FC = () => {
     }
   };
 
+  const handlePayClick = (status: 'done' | 'pay' | 'check') => {
+    if (status === 'pay' && bill) {
+        navigate(`/pay/${bill.id}`);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       <Navbar />
@@ -94,6 +100,7 @@ export const BillDetailPage: React.FC = () => {
                   <button
                     className="w-24 text-center px-4 py-2 rounded-lg text-white font-bold"
                     style={getStatusStyle(member.status)}
+                    onClick={() => handlePayClick(member.status)}
                   >
                     {member.status === 'done'
                       ? 'Done'
