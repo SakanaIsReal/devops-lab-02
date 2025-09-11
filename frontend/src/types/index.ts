@@ -35,3 +35,18 @@ export interface PaymentDetails {
   amountToPay: number;
   qrCodeUrl: string;
 }
+
+export interface BillMember {
+  name: string;
+  amount: number;
+  status: 'done' | 'pay' | 'check';
+  avatar: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}

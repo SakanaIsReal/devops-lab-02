@@ -1,4 +1,4 @@
-import { Transaction, User, Group, PaymentDetails } from "../types";
+import { Transaction, User, Group, PaymentDetails, BillDetail } from "../types";
 
 export const mockLoginApi = (
   email: string,
@@ -235,5 +235,47 @@ export const mockGetPaymentDetailsApi = (transactionId: string): Promise<Payment
         reject(new Error('Payment details not found'));
       }
     }, 500);
+  });
+};
+
+
+//mockapit for bill detail page
+
+
+
+export const mockGetBillDetailApi = (billId: string): Promise<BillDetail> => {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (billId === "1") {
+        resolve({
+          id: "1",
+          storeName: "ส้มตำเจ๊แต๋ว MLC",
+          payer: "Karn",
+          date: "21/8/2025",
+          members: [
+            {
+              name: "JutichotZaHAHA+",
+              amount: 150,
+              status: "done",
+              avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+            },
+            {
+              name: "JutichotZaHAHA+",
+              amount: 150,
+              status: "pay",
+              avatar: "https://randomuser.me/api/portraits/men/1.jpg",
+            },
+            {
+              name: "JutichotZaHAHA+",
+              amount: 150,
+              status: "check",
+              avatar: "https://randomuser.me/api/portraits/women/2.jpg",
+            },
+          ],
+        });
+      } else {
+        reject(new Error("Bill not found"));
+      }
+    }, 300);
   });
 };

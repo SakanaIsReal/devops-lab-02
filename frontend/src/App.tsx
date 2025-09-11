@@ -101,6 +101,7 @@ function App() {
             element={<BillDetailPage />}
           />
 
+
           {/* 
             Catch-all route. 
             If the user goes to the root URL '/', redirect them to /dashboard.
