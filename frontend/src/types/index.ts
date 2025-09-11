@@ -50,3 +50,9 @@ export interface BillDetail {
   date: string;
   members: BillMember[];
 }
+
+export interface Bill extends BillDetail {
+  groupId: string;
+  name: string;
+  status: 'pending' | 'completed';
+}

@@ -98,7 +98,11 @@ function App() {
 
           <Route
             path="/bill/:billId"
-            element={<BillDetailPage />}
+            element={
+              <ProtectedRoute>
+                <BillDetailPage />
+              </ProtectedRoute>
+            }
           />
 
 
