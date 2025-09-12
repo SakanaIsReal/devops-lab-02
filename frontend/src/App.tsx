@@ -12,6 +12,7 @@ import CreateGroupPage from './pages/CreateGroupPage';
 import PayPage from './pages/PayPage';
 import SignUpPage from './pages/SignUpPage';
 import { AccountPage } from './pages/AccountPage';
+import { BillDetailPage } from './pages/BillDetailPage';
 // Import our Protected Route component
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PublicRoute } from './components/PublicRoute';
@@ -94,6 +95,16 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/bill/:billId"
+            element={
+              <ProtectedRoute>
+                <BillDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
 
           {/* 
             Catch-all route. 
