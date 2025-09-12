@@ -16,6 +16,7 @@ import { AccountPage } from './pages/AccountPage';
 import SplitMoneyPage from './pages/SplitMoneyPage';
 import ManualSplitPage from './pages/ManualSplitPage';
 import EqualSplitPage from './pages/EqualSplitPage';
+import { BillDetailPage } from './pages/BillDetailPage';
 // Import our Protected Route component
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PublicRoute } from './components/PublicRoute';
@@ -116,6 +117,16 @@ function App() {
               <EqualSplitPage />
             }
           />
+
+          <Route
+            path="/bill/:billId"
+            element={
+              <ProtectedRoute>
+                <BillDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
 
           {/* 
             Catch-all route. 

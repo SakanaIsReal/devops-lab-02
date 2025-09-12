@@ -1,0 +1,28 @@
+version: "3.9"
+services:
+  db:
+    image: mysql:8
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: smartsplit-db
+    ports:
+      - "8082:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+
+  api:
+    build: .
+    image: smartsplit-back:dev
+    container_name: smartsplit-api
+    depends_on:
+      - db
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/smartsplit-db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+volumes:
+  dbdata:

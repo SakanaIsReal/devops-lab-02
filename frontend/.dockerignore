@@ -1,0 +1,15 @@
+# Dependencies
+node_modules
+
+# Build artifacts
+build
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+
+# Readme
+README.md

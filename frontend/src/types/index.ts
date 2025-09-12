@@ -35,3 +35,24 @@ export interface PaymentDetails {
   amountToPay: number;
   qrCodeUrl: string;
 }
+
+export interface BillMember {
+  name: string;
+  amount: number;
+  status: 'done' | 'pay' | 'check';
+  avatar: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}
+
+export interface Bill extends BillDetail {
+  groupId: string;
+  name: string;
+  status: 'pending' | 'completed';
+}

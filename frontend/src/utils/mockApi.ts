@@ -1,4 +1,4 @@
-import { Transaction, User, Group, PaymentDetails } from "../types";
+import { Transaction, User, Group, PaymentDetails, BillDetail, Bill } from "../types";
 
 export const mockLoginApi = (
   email: string,
@@ -133,14 +133,35 @@ export const mockGetGroupsApi = (): Promise<Group[]> => {
   });
 };
 
-export const mockTransactionsWithGroupId = [
+const mockBills: Bill[] = [
   {
     id: '1',
     groupId: '1',
     name: 'Groceries',
     payer: 'Alice',
     date: '2025-09-06',
-    status: 'completed' as const,
+    status: 'completed',
+    storeName: 'ส้มตำเจ๊แต๋ว MLC',
+    members: [
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/1.jpg",
+        },
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "check",
+          avatar: "https://randomuser.me/api/portraits/women/2.jpg",
+        },
+    ],
   },
   {
     id: '2',
@@ -148,7 +169,22 @@ export const mockTransactionsWithGroupId = [
     name: 'Movie Tickets',
     payer: 'Bob',
     date: '2025-09-05',
-    status: 'pending' as const,
+    status: 'pending',
+    storeName: 'Major Cineplex',
+    members: [
+        {
+          name: "Alice",
+          amount: 100,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "Bob",
+          amount: 100,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/2.jpg",
+        },
+    ],
   },
   {
     id: '3',
@@ -156,14 +192,32 @@ export const mockTransactionsWithGroupId = [
     name: 'Restaurant',
     payer: 'Alice',
     date: '2025-09-04',
-    status: 'completed' as const,
+    status: 'completed',
+    storeName: 'KFC',
+    members: [
+        {
+          name: "Alice",
+          amount: 200,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "Charlie",
+          amount: 200,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/3.jpg",
+        },
+    ],
   },
 ];
 
 export const mockGetTransactionsApi = (groupId: string): Promise<any[]> => {
   return new Promise((resolve) => {
     setTimeout(() => {
-      resolve(mockTransactionsWithGroupId.filter(t => t.groupId === groupId));
+      const transactions = mockBills
+        .filter(bill => bill.groupId === groupId)
+        .map(({ id, name, payer, date, status }) => ({ id, name, payer, date, status }));
+      resolve(transactions);
     }, 100);
   });
 };
@@ -235,5 +289,19 @@ export const mockGetPaymentDetailsApi = (transactionId: string): Promise<Payment
         reject(new Error('Payment details not found'));
       }
     }, 500);
+  });
+};
+
+export const mockGetBillDetailApi = (billId: string): Promise<BillDetail> => {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      const bill = mockBills.find(b => b.id === billId);
+      if (bill) {
+        const { id, storeName, payer, date, members } = bill;
+        resolve({ id, storeName, payer, date, members });
+      } else {
+        reject(new Error("Bill not found"));
+      }
+    }, 300);
   });
 };
