@@ -56,16 +56,16 @@ public class ExpensePaymentController {
                                     @RequestPart(name = "receipt", required = false) MultipartFile receipt,
                                     HttpServletRequest req) {
 
-        // 1) สร้าง payment
+
         ExpensePayment p = payments.create(expenseId, fromUserId, amount);
 
-        // 2) ถ้ามีไฟล์แนบ → บันทึกไฟล์ แล้วแนบ URL (ห้ามอัปซ้ำ)
+
         if (receipt != null && !receipt.isEmpty()) {
             String url = storage.save(receipt, "payment-receipts", "payment-" + p.getId(), req);
             payments.attachReceiptInExpense(expenseId, p.getId(), url); // จะ throw 409 ถ้ามีแล้ว
         }
 
-        // 3) อ่านกลับจาก DB อีกรอบ (เผื่อมีใบเสร็จแนบแล้ว)
+
         return payments.getInExpense(expenseId, p.getId()) != null
                 ? ExpensePaymentDto.fromEntity(payments.getInExpense(expenseId, p.getId()))
                 : ExpensePaymentDto.fromEntity(p);
@@ -89,9 +89,9 @@ public class ExpensePaymentController {
     }
 
 
-    @PreAuthorize("@perm.canViewExpense(#expenseId)")
-    @GetMapping("/total-verified")
-    public BigDecimal totalVerified(@PathVariable Long expenseId) {
-        return payments.sumVerified(expenseId);
-    }
+//    @PreAuthorize("@perm.canViewExpense(#expenseId)")
+//    @GetMapping("/total-verified")
+//    public BigDecimal totalVerified(@PathVariable Long expenseId) {
+//        return payments.sumVerified(expenseId);
+//    }
 }

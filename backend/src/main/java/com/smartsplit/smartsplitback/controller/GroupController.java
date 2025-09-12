@@ -1,3 +1,4 @@
+// src/main/java/com/smartsplit/smartsplitback/controller/GroupController.java
 package com.smartsplit.smartsplitback.controller;
 
 import com.smartsplit.smartsplitback.model.Group;
@@ -40,11 +41,19 @@ public class GroupController {
         this.sec = sec;
         this.storage = storage;
     }
-
+    @PreAuthorize("#ownerUserId == null ? isAuthenticated() : @perm.isAdmin()")
     @GetMapping
-    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId){
-        var list = ownerUserId==null ? groups.list() : groups.listByOwner(ownerUserId);
-        return list.stream().map(GroupController::toDto).toList();
+    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId) {
+        if (ownerUserId == null) {
+            Long me = sec.currentUserId();
+            if (me == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+            }
+            return groups.listByOwner(me).stream().map(this::toDto).toList();
+        } else {
+            // ผ่าน @PreAuthorize มาได้แปลว่าเป็นแอดมินแล้ว
+            return groups.listByOwner(ownerUserId).stream().map(this::toDto).toList();
+        }
     }
 
     @PreAuthorize("isAuthenticated()")
@@ -53,7 +62,7 @@ public class GroupController {
         Long me = sec.currentUserId();
         if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         var list = groups.listByMember(me);
-        return list.stream().map(GroupController::toDto).toList();
+        return list.stream().map(this::toDto).toList(); // <-- ใช้ this::toDto
     }
 
     @PreAuthorize("@perm.isGroupMember(#id)")
@@ -61,9 +70,8 @@ public class GroupController {
     public GroupDto get(@PathVariable Long id){
         var g = groups.get(id);
         if(g==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Group not found");
-        return toDto(g);
+        return toDto(g); // <-- memberCount จะถูกคำนวณ
     }
-
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -120,7 +128,6 @@ public class GroupController {
         }
         return toDto(g);
     }
-
 
     @PreAuthorize("@perm.canManageGroup(#id)")
     @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -189,7 +196,15 @@ public class GroupController {
         groups.delete(id);
     }
 
-    private static GroupDto toDto(Group g){
-        return new GroupDto(g.getId(), g.getOwner().getId(), g.getName(), g.getCoverImageUrl());
+    // เปลี่ยนเป็น non-static เพื่อคำนวณ memberCount จาก service
+    private GroupDto toDto(Group g){
+        long memberCount = members.countMembers(g.getId());
+        return new GroupDto(
+                g.getId(),
+                g.getOwner().getId(),
+                g.getName(),
+                g.getCoverImageUrl(),
+                memberCount
+        );
     }
 }

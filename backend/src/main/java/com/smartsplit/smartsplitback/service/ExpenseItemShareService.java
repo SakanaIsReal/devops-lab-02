@@ -38,8 +38,6 @@ public class ExpenseItemShareService {
         this.expenses = expenses;
     }
 
-    /* ─────────────── READ (scoped) ─────────────── */
-
     @Transactional(readOnly = true)
     public List<ExpenseItemShare> listByItemInExpense(Long expenseId, Long itemId) {
         assertItemInExpenseOr404(expenseId, itemId);
@@ -51,9 +49,6 @@ public class ExpenseItemShareService {
         return shares.findByExpenseItem_Expense_Id(expenseId);
     }
 
-    /* ─────────────── CREATE (scoped) ─────────────── */
-
-    /** เพิ่ม share: ถ้าส่ง percent มา → คำนวณค่าเป็น share_value (ปัด 2 ตำแหน่ง HALF_UP) */
     @Transactional
     public ExpenseItemShare addShareInExpense(Long expenseId,
                                               Long itemId,
@@ -91,9 +86,6 @@ public class ExpenseItemShareService {
         return shares.save(s);
     }
 
-    /* ─────────────── UPDATE (scoped) ─────────────── */
-
-    /** อัปเดต share: ถ้าส่ง percent มา → คำนวณทับ share_value (ปัด 2 ตำแหน่ง HALF_UP) */
     @Transactional
     public ExpenseItemShare updateShareInExpense(Long expenseId,
                                                  Long itemId,
@@ -118,8 +110,6 @@ public class ExpenseItemShareService {
         return shares.save(s);
     }
 
-    /* ─────────────── DELETE (scoped) ─────────────── */
-
     @Transactional
     public void deleteShareInExpense(Long expenseId, Long itemId, Long shareId) {
         boolean ok = shares.existsByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId);
@@ -129,8 +119,6 @@ public class ExpenseItemShareService {
         shares.deleteById(shareId);
     }
 
-    /* ─────────────── UTIL ─────────────── */
-
     private void assertItemInExpenseOr404(Long expenseId, Long itemId) {
         boolean exists = items.existsByIdAndExpense_Id(itemId, expenseId);
         if (!exists) {
@@ -138,13 +126,13 @@ public class ExpenseItemShareService {
         }
     }
 
-    /** ปัดเป็นจำนวนเงิน 2 ตำแหน่ง (HALF_UP) */
+
     private BigDecimal scaleMoney(BigDecimal v) {
         if (v == null) return null;
         return v.setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** แปลงเปอร์เซ็นต์ → มูลค่า จากยอด item.amount (ปัด 2 ตำแหน่ง HALF_UP) */
+
     private BigDecimal percentToValue(BigDecimal itemAmount, BigDecimal percent) {
         BigDecimal base = (itemAmount != null) ? itemAmount : BigDecimal.ZERO;
         BigDecimal pct  = (percent != null) ? percent : BigDecimal.ZERO;
@@ -152,9 +140,7 @@ public class ExpenseItemShareService {
         return base.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
     }
 
-    /* ─────────────── Legacy (ไม่ผูก scope) ───────────────
-       คงพฤติกรรม “percent มีสิทธิ์เหนือกว่า” เช่นเดียวกัน
-    ---------------------------------------------------------------- */
+
 
     @Deprecated
     @Transactional(readOnly = true)
@@ -199,4 +185,11 @@ public class ExpenseItemShareService {
         return shares.save(s);
     }
 
+    @Transactional(readOnly = true)
+    public List<ExpenseItemShare> listByExpenseAndParticipant(Long expenseId, Long userId) {
+        if (expenseId == null || userId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "expenseId/userId is required");
+        }
+        return shares.findByExpenseItem_Expense_IdAndParticipant_Id(expenseId, userId);
+    }
 }

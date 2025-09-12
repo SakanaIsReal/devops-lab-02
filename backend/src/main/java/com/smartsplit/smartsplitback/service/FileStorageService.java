@@ -59,7 +59,7 @@ public class FileStorageService {
         try {
             if (publicUrl == null || publicUrl.isBlank()) return false;
 
-            // คาดหวังรูปแบบ URL: <base>/files/<folder>/<name>
+
             int idx = publicUrl.indexOf("/files/");
             if (idx < 0) return false;
             String rel = publicUrl.substring(idx + "/files/".length()); // <folder>/<name>

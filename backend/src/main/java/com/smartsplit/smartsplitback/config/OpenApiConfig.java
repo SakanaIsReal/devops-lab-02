@@ -18,12 +18,12 @@ public class OpenApiConfig {
                 .components(new Components()
                         .addSecuritySchemes(securitySchemeName,
                                 new SecurityScheme()
-                                        .type(SecurityScheme.Type.HTTP)   // ใช้ HTTP auth
-                                        .scheme("bearer")                 // ประเภท Bearer
-                                        .bearerFormat("JWT")              // ระบุว่าเป็น JWT
+                                        .type(SecurityScheme.Type.HTTP)
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")
                         )
                 )
-                // Global security: ทุก API ต้องใช้ Bearer token
+
                 .addSecurityItem(new SecurityRequirement().addList(securitySchemeName));
     }
 }
