@@ -27,11 +27,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       label: "Group",
       icon: <UserGroupIcon className="w-6 h-6" />,
     },
-    {
-      id: "split",
-      label: "Split",
-      icon: <CurrencyDollarIcon className="w-6 h-6" />,
-    },
+    // {
+    //   id: "split",
+    //   label: "Split",
+    //   icon: <CurrencyDollarIcon className="w-6 h-6" />,
+    // },
   ];
   return (
     <nav className="fixed bottom-0 inset-x-0 bg-[#222831] text-white z-50 pb-[env(safe-area-inset-bottom)]">
