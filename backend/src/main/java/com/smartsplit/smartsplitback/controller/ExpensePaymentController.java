@@ -89,9 +89,9 @@ public class ExpensePaymentController {
     }
 
 
-    @PreAuthorize("@perm.canViewExpense(#expenseId)")
-    @GetMapping("/total-verified")
-    public BigDecimal totalVerified(@PathVariable Long expenseId) {
-        return payments.sumVerified(expenseId);
-    }
+//    @PreAuthorize("@perm.canViewExpense(#expenseId)")
+//    @GetMapping("/total-verified")
+//    public BigDecimal totalVerified(@PathVariable Long expenseId) {
+//        return payments.sumVerified(expenseId);
+//    }
 }

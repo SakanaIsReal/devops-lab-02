@@ -29,6 +29,8 @@ public interface ExpenseItemShareRepository extends JpaRepository<ExpenseItemSha
            """)
     List<ExpenseItemShare> fetchForExpense(@Param("expenseId") Long expenseId);
 
+    List<ExpenseItemShare> findByExpenseItem_Expense_IdAndParticipant_Id(Long expenseId, Long userId);
+
     // รายชื่อผู้มี share ใน expense นี้
     @Query("""
            select distinct s.participant.id

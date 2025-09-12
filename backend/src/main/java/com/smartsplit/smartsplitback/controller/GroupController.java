@@ -41,11 +41,19 @@ public class GroupController {
         this.sec = sec;
         this.storage = storage;
     }
-    @PreAuthorize("@perm.isAdmin()")
+    @PreAuthorize("#ownerUserId == null ? isAuthenticated() : @perm.isAdmin()")
     @GetMapping
-    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId){
-        var list = ownerUserId==null ? groups.list() : groups.listByOwner(ownerUserId);
-        return list.stream().map(this::toDto).toList();
+    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId) {
+        if (ownerUserId == null) {
+            Long me = sec.currentUserId();
+            if (me == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+            }
+            return groups.listByOwner(me).stream().map(this::toDto).toList();
+        } else {
+            // ผ่าน @PreAuthorize มาได้แปลว่าเป็นแอดมินแล้ว
+            return groups.listByOwner(ownerUserId).stream().map(this::toDto).toList();
+        }
     }
 
     @PreAuthorize("isAuthenticated()")
