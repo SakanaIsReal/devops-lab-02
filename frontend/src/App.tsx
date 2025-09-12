@@ -12,7 +12,10 @@ import CreateGroupPage from './pages/CreateGroupPage';
 import PayPage from './pages/PayPage';
 import SignUpPage from './pages/SignUpPage';
 import { AccountPage } from './pages/AccountPage';
+//Split Money 
 import SplitMoneyPage from './pages/SplitMoneyPage';
+import ManualSplitPage from './pages/ManualSplitPage';
+import EqualSplitPage from './pages/EqualSplitPage';
 // Import our Protected Route component
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PublicRoute } from './components/PublicRoute';
@@ -98,7 +101,19 @@ function App() {
           <Route
             path="/splitmoney"
             element={
-                <SplitMoneyPage />
+              <SplitMoneyPage />
+            }
+          />
+          <Route
+            path="/manualsplit"
+            element={
+              <ManualSplitPage />
+            }
+          />
+          <Route
+            path="/equalsplit"
+            element={
+              <EqualSplitPage />
             }
           />
 
