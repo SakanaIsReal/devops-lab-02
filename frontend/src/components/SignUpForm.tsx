@@ -3,27 +3,26 @@ import React, { useState } from "react";
 import { Input } from "./Input";
 import logo from "../assets/logo.png";
 import { useNavigate } from "react-router-dom";
-import { mockSignUpApi } from "../utils/mockApi";
+import { registerApi } from "../service/registerApi";
 import { useAuth } from "../contexts/AuthContext";
 
 export const SignUpForm: React.FC = () => {
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
+    phone: "",
     email: "",
     password: "",
     confirmPassword: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false); // กันคลิกซ้ำตอนสมัคร
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData((prevState) => ({
-      ...prevState,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
     if (error) setError(null);
   };
 
@@ -31,34 +30,52 @@ export const SignUpForm: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    if (
-      !formData.firstName ||
-      !formData.lastName ||
-      !formData.email ||
-      !formData.password ||
-      !formData.confirmPassword
-    ) {
+    // trim ค่าที่จำเป็นก่อนตรวจ/ส่ง
+    const firstName = formData.firstName.trim();
+    const lastName = formData.lastName.trim();
+    const phone = formData.phone.trim();
+    const email = formData.email.trim();
+    const password = formData.password;
+    const confirmPassword = formData.confirmPassword;
+
+    // validate ขั้นพื้นฐาน
+    if (!firstName || !lastName || !phone || !email || !password || !confirmPassword) {
       setError("Please fill in all fields");
       return;
     }
-
-    if (formData.password !== formData.confirmPassword) {
+    if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
     }
 
     try {
-      await mockSignUpApi(formData.firstName, formData.lastName, formData.email, formData.password);
-      // Log in with a user that is known to exist in the mock API
-      await login("user@example.com", "gg");
+      setSubmitting(true);
+
+      const userName = `${firstName} ${lastName}`.trim();
+
+      // 1) สมัครสมาชิกให้ตรงสเปค Swagger: POST /api/auth/register
+      await registerApi({
+        email,
+        password,
+        userName,
+        phone,
+      });
+
+      // 2) สมัครสำเร็จ -> ล็อกอินด้วยบัญชีที่เพิ่งสมัคร (ไม่ใช้ mock)
+      await login(email, password);
+
+      // 3) ไปหน้าแรกหรือหน้าเป้าหมาย
+      navigate("/");
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred during sign up."
+        err instanceof Error ? err.message : "An unknown error occurred during sign up."
       );
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  const disabled = isLoading || submitting;
 
   return (
     <form
@@ -81,7 +98,7 @@ export const SignUpForm: React.FC = () => {
         value={formData.firstName}
         onChange={handleInputChange}
         placeholder="John"
-        disabled={isLoading}
+        disabled={disabled}
         required
       />
 
@@ -92,7 +109,18 @@ export const SignUpForm: React.FC = () => {
         value={formData.lastName}
         onChange={handleInputChange}
         placeholder="Doe"
-        disabled={isLoading}
+        disabled={disabled}
+        required
+      />
+
+      <Input
+        label="Phone"
+        type="tel"
+        name="phone"
+        value={formData.phone}
+        onChange={handleInputChange}
+        placeholder="08xxxxxxxx"
+        disabled={disabled}
         required
       />
 
@@ -103,7 +131,7 @@ export const SignUpForm: React.FC = () => {
         value={formData.email}
         onChange={handleInputChange}
         placeholder="user@example.com"
-        disabled={isLoading}
+        disabled={disabled}
         required
       />
 
@@ -114,7 +142,7 @@ export const SignUpForm: React.FC = () => {
         value={formData.password}
         onChange={handleInputChange}
         placeholder="Your password"
-        disabled={isLoading}
+        disabled={disabled}
         required
       />
 
@@ -125,28 +153,28 @@ export const SignUpForm: React.FC = () => {
         value={formData.confirmPassword}
         onChange={handleInputChange}
         placeholder="Confirm your password"
-        disabled={isLoading}
+        disabled={disabled}
         required
       />
 
       <button
         type="submit"
-        disabled={isLoading}
+        disabled={disabled}
         className={`mt-2 py-2 px-4 rounded-lg font-medium text-white transition-colors ${
-          isLoading
+          disabled
             ? "bg-gray-400 cursor-not-allowed"
             : "bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         }`}
       >
-        {isLoading ? "Signing up..." : "Sign Up"}
+        {disabled ? "Signing up..." : "Sign Up"}
       </button>
 
       <button
         type="button"
         onClick={() => navigate("/login")}
-        disabled={isLoading}
+        disabled={disabled}
         className={`py-2 px-4 rounded-lg font-medium border transition-colors ${
-          isLoading
+          disabled
             ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
             : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
         }`}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { BottomNav, NavTab } from '../components/BottomNav';
+import { BottomNav, NavId } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 import { mockGetBillDetailApi } from '../utils/mockApi';
 import type { BillDetail } from '../types';
@@ -38,7 +38,7 @@ export const BillDetailPage: React.FC = () => {
     }
   }, [billId]);
 
-  const handleTabChange = (tab: NavTab) => {
+  const handleTabChange = (tab: NavId) => {
     switch (tab) {
       case 'home':
         navigate('/dashboard');
