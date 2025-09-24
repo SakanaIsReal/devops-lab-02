@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav, NavTab } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import BalanceSummary from '../components/BalanceSummary';
-import GroupList from '../components/GroupList';
+// import BalanceSummary from '../components/BalanceSummary';
+// import GroupList from '../components/GroupList';
 
 export default function EqualSplitPage() {
     const [expenseName, setExpenseName] = useState("");
