@@ -2,7 +2,7 @@ import React from "react";
 import {
   HomeIcon,
   UserGroupIcon,
-  CurrencyDollarIcon,
+  // CurrencyDollarIcon,
 } from "@heroicons/react/24/solid";
 
 export type NavTab = "home" | "groups" | "split" | undefined;
