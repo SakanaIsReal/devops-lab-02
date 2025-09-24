@@ -3,6 +3,7 @@ package com.smartsplit.smartsplitback.model;
 import jakarta.persistence.*;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+import java.util.Objects;
 
 @Entity
 @Table(name = "group_members",
@@ -32,4 +33,16 @@ public class GroupMember {
     public void setGroup(Group group){ this.group=group; }
     public User getUser(){ return user; }
     public void setUser(User user){ this.user=user; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof GroupMember that)) return false;
+        return Objects.equals(this.id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(id);
+    }
 }

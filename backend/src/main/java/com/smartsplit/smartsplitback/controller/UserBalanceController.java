@@ -5,8 +5,10 @@ import com.smartsplit.smartsplitback.model.dto.BalanceLineDto;
 import com.smartsplit.smartsplitback.model.dto.BalanceSummaryDto;
 import com.smartsplit.smartsplitback.security.Perms;
 import com.smartsplit.smartsplitback.service.UserBalanceService;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -26,6 +28,7 @@ public class UserBalanceController {
     @GetMapping
     public List<BalanceLineDto> list() {
         Long myId = perm.currentUserId(); // ดึงจาก token
+        if (myId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         return svc.listBalances(myId);
     }
 
@@ -33,6 +36,7 @@ public class UserBalanceController {
     @GetMapping("/summary")
     public BalanceSummaryDto summary() {
         Long myId = perm.currentUserId(); // ดึงจาก token
+        if (myId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         return svc.summary(myId);
     }
 }

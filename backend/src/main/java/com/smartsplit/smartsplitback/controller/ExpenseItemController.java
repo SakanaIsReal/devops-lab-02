@@ -21,15 +21,13 @@ public class ExpenseItemController {
         this.items = items;
     }
 
-
     @PreAuthorize("@perm.canViewExpense(#expenseId)")
     @GetMapping
     public List<ExpenseItemDto> list(@PathVariable Long expenseId) {
-        return items.listByExpense(expenseId).stream()
-                .map(ExpenseItemDto::fromEntity)
-                .toList();
+        var list = items.listByExpense(expenseId);
+        if (list == null) return List.of();                // กัน null list
+        return list.stream().map(ExpenseItemDto::fromEntity).toList();
     }
-
 
     @PreAuthorize("@perm.canViewExpenseItem(#expenseId, #itemId)")
     @GetMapping("/{itemId}")
@@ -39,16 +37,27 @@ public class ExpenseItemController {
         return ExpenseItemDto.fromEntity(it);
     }
 
-
     @PreAuthorize("@perm.canManageExpense(#expenseId)")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ExpenseItemDto create(@PathVariable Long expenseId,
                                  @RequestParam String name,
                                  @RequestParam BigDecimal amount) {
-        return ExpenseItemDto.fromEntity(items.create(expenseId, name, amount));
-    }
 
+        if (name == null || name.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        }
+        if (amount == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount is required");
+        }
+
+        var created = items.create(expenseId, name, amount);
+        if (created == null) {
+
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to create expense item");
+        }
+        return ExpenseItemDto.fromEntity(created);
+    }
 
     @PreAuthorize("@perm.canManageExpenseItem(#expenseId, #itemId)")
     @PutMapping("/{itemId}")
@@ -56,8 +65,22 @@ public class ExpenseItemController {
                                  @PathVariable Long itemId,
                                  @RequestParam(required = false) String name,
                                  @RequestParam(required = false) BigDecimal amount) {
-        return ExpenseItemDto.fromEntity(items.updateInExpense(expenseId, itemId, name, amount));
+
+
+        if (name == null || name.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        }
+        if (amount == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount is required");
+        }
+
+        var updated = items.updateInExpense(expenseId, itemId, name, amount);
+        if (updated == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense item not found in this expense");
+        }
+        return ExpenseItemDto.fromEntity(updated);
     }
+
 
     @PreAuthorize("@perm.canManageExpenseItem(#expenseId, #itemId)")
     @DeleteMapping("/{itemId}")
@@ -66,10 +89,10 @@ public class ExpenseItemController {
         items.deleteInExpense(expenseId, itemId);
     }
 
-
     @PreAuthorize("@perm.canViewExpense(#expenseId)")
     @GetMapping("/total")
     public BigDecimal total(@PathVariable Long expenseId) {
-        return items.sumItems(expenseId);
+        var sum = items.sumItems(expenseId);
+        return sum == null ? BigDecimal.ZERO : sum;        // กัน null เผื่อ service ยังไม่เซ็ต
     }
 }
