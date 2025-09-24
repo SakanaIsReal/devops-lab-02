@@ -3,6 +3,7 @@ package com.smartsplit.smartsplitback.controller;
 import com.smartsplit.smartsplitback.model.*;
 import com.smartsplit.smartsplitback.model.dto.GroupMemberDto;
 import com.smartsplit.smartsplitback.service.GroupMemberService;
+import com.smartsplit.smartsplitback.security.SecurityFacade;
 import com.smartsplit.smartsplitback.service.GroupService;
 import com.smartsplit.smartsplitback.service.UserService;
 import org.springframework.http.HttpStatus;
@@ -11,15 +12,17 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import java.util.List;
 
+
 @RestController
 @RequestMapping("/api/groups/{groupId}/members")
 public class GroupMemberController {
     private final GroupMemberService members;
     private final GroupService groups;
     private final UserService users;
+    private final SecurityFacade security;
 
-    public GroupMemberController(GroupMemberService members, GroupService groups, UserService users){
-        this.members = members; this.groups = groups; this.users = users;
+    public GroupMemberController(GroupMemberService members, GroupService groups, UserService users,SecurityFacade security){
+        this.members = members; this.groups = groups; this.users = users; this.security = security;
     }
 
     @PreAuthorize("@perm.isGroupMember(#groupId)")
@@ -47,6 +50,20 @@ public class GroupMemberController {
         gm.setId(new GroupMemberId(g.getId(), u.getId()));
         members.save(gm);
         return new GroupMemberDto(g.getId(), u.getId());
+    }
+
+    @PreAuthorize("@perm.isGroupMember(#groupId)")
+    @DeleteMapping("/me") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leave(@PathVariable Long groupId){
+        ensureGroup(groupId);
+        Long uid = security.currentUserId();
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+
+        if(!members.exists(groupId, uid))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Membership not found");
+
+       
+        members.delete(groupId, uid);
     }
 
     @PreAuthorize("@perm.canManageMembers(#groupId)")

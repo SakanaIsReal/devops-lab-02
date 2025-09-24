@@ -1,4 +1,4 @@
-// src/test/java/com/smartsplit/smartsplitback/controller/AuthControllerTest.java
+
 package com.smartsplit.smartsplitback.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,17 +6,19 @@ import com.smartsplit.smartsplitback.model.dto.AuthResponse;
 import com.smartsplit.smartsplitback.security.JwtAuthFilter;
 import com.smartsplit.smartsplitback.security.JwtService;
 import com.smartsplit.smartsplitback.service.AuthService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;  // ใช้ต่อไปได้ แม้จะ deprecated (ยังใช้ได้ใน Boot 3.5)
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -30,14 +32,12 @@ class AuthControllerTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
-    // mock ชั้น service ที่ controller เรียกใช้
-    @MockBean AuthService authService;
-
-    // mock ฝั่ง security เพื่อไม่ให้ context ไปสร้างของจริง
-    @MockBean JwtAuthFilter jwtAuthFilter;
-    @MockBean JwtService jwtService;
+    @MockitoBean AuthService authService;
+    @MockitoBean JwtAuthFilter jwtAuthFilter;
+    @MockitoBean JwtService jwtService;
 
     @Test
+    @DisplayName("register: 201 + accessToken in body")
     void register_shouldReturn201_andToken() throws Exception {
         var resp = new AuthResponse(
                 "fake-jwt-token",
@@ -62,10 +62,39 @@ class AuthControllerTest {
                                 .content(objectMapper.writeValueAsString(body))
                 )
                 .andExpect(status().isCreated())
-                .andExpect(content().string(containsString("fake-jwt-token")));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.accessToken").value("fake-jwt-token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.userId").value(1))
+                .andExpect(jsonPath("$.email").value("alice@example.com"))
+                .andExpect(jsonPath("$.userName").value("Alice"))
+                .andExpect(jsonPath("$.role").value(0));
     }
 
     @Test
+    @DisplayName("register: 409 when email already in use")
+    void register_shouldReturn409_whenEmailAlreadyUsed() throws Exception {
+        when(authService.register(any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use"));
+
+        var body = Map.of(
+                "email", "alice@example.com",
+                "userName", "Alice",
+                "password", "Passw0rd!",
+                "phone", "0990000000"
+        );
+
+        mockMvc.perform(
+                        post("/api/auth/register")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(body))
+                )
+                .andExpect(status().isConflict())
+                .andExpect(status().reason("Email already in use"));
+    }
+
+    @Test
+    @DisplayName("login: 200 + accessToken in body")
     void login_shouldReturn200_andToken() throws Exception {
         var resp = new AuthResponse(
                 "fake-jwt-token-login",
@@ -88,6 +117,32 @@ class AuthControllerTest {
                                 .content(objectMapper.writeValueAsString(body))
                 )
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("fake-jwt-token-login")));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.accessToken").value("fake-jwt-token-login"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.userId").value(2))
+                .andExpect(jsonPath("$.email").value("bob@example.com"))
+                .andExpect(jsonPath("$.userName").value("Bob"))
+                .andExpect(jsonPath("$.role").value(0));
+    }
+
+    @Test
+    @DisplayName("login: 401 when invalid credentials")
+    void login_shouldReturn401_whenInvalidCredentials() throws Exception {
+        when(authService.login(any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+
+        var body = Map.of(
+                "email", "bob@example.com",
+                "password", "wrong-pass"
+        );
+
+        mockMvc.perform(
+                        post("/api/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(body))
+                )
+                .andExpect(status().isUnauthorized())
+                .andExpect(status().reason("Invalid credentials"));
     }
 }

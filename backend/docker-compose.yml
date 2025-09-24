@@ -1,28 +1,55 @@
-version: "3.9"
+name: smartsplit-back
+
 services:
   db:
     image: mysql:8
-    container_name: mysql-db
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: smartsplit-db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
     ports:
       - "8082:3306"
     volumes:
       - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  # job สร้าง DB ถ้ายังไม่มี (รันครั้งเดียวแล้วจบ)
+  db-init:
+    image: mysql:8
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    entrypoint: [ "sh", "-c" ]
+    command:
+      - >
+        mysql -h db -uroot -p"$$MYSQL_ROOT_PASSWORD"
+        -e "CREATE DATABASE IF NOT EXISTS \`$$MYSQL_DATABASE\`
+            CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+    restart: "no"
 
   api:
     build: .
-    image: smartsplit-back:dev
-    container_name: smartsplit-api
+    image: smartsplit-back:prod
     depends_on:
-      - db
-    ports:
-      - "8081:8080"
+      db-init:
+        condition: service_completed_successfully
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/smartsplit-db
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE}
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      APP_JWT_EXPIRATION_SECONDS: ${APP_JWT_EXPIRATION_SECONDS:-86400}
+    ports:
+      - "8081:8081"
+    restart: always
+
 volumes:
   dbdata:
