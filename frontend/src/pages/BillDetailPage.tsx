@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav, NavTab } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import { mockGetBillDetailApi } from '../utils/mockApi';
+import { getBillDetails } from '../utils/api';
 import type { BillDetail } from '../types';
 
 const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
@@ -26,7 +26,7 @@ export const BillDetailPage: React.FC = () => {
 
   useEffect(() => {
     if (billId) {
-      mockGetBillDetailApi(billId)
+      getBillDetails(billId)
         .then((data) => {
           setBill(data);
           setLoading(false);

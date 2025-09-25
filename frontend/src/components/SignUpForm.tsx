@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Input } from "./Input";
 import logo from "../assets/logo.png";
 import { useNavigate } from "react-router-dom";
-import { mockSignUpApi } from "../utils/mockApi";
+import { signUpApi } from "../utils/api";
 import { useAuth } from "../contexts/AuthContext";
 
 export const SignUpForm: React.FC = () => {
@@ -48,9 +48,9 @@ export const SignUpForm: React.FC = () => {
     }
 
     try {
-      await mockSignUpApi(formData.firstName, formData.lastName, formData.email, formData.password);
-      // Log in with a user that is known to exist in the mock API
-      await login("user@example.com", "gg");
+      await signUpApi(formData.firstName, formData.lastName, formData.email, formData.password);
+      // Log in with the new credentials
+      await login(formData.email, formData.password);
     } catch (err) {
       setError(
         err instanceof Error

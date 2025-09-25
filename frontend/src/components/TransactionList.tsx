@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import TransactionCard from './TransactionCard';
-import { mockGetTransactionsApi } from '../utils/mockApi';
+import { getGroupTransactions } from '../utils/api';
 
 interface TransactionListProps {
   groupId: string;
@@ -16,7 +16,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ groupId }) => {
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
-        const fetchedTransactions = await mockGetTransactionsApi(groupId);
+        const fetchedTransactions = await getGroupTransactions(groupId);
         setTransactions(fetchedTransactions);
       } catch (error) {
         console.error("Error fetching transactions:", error);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Group } from '../types';
-import { mockGetGroupsApi } from '../utils/mockApi';
+import { getGroups } from '../utils/api';
 import FAB from './FAB';
 
 const GroupList: React.FC = () => {
@@ -12,7 +12,7 @@ const GroupList: React.FC = () => {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const fetchedGroups = await mockGetGroupsApi();
+        const fetchedGroups = await getGroups();
         setGroups(fetchedGroups);
       } catch (error) {
         console.error("Error fetching groups:", error);
