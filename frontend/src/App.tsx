@@ -6,7 +6,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext';
 // Import our Pages
 import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
+import { HomePage } from './pages/HomePage';
+import { GroupPage } from './pages/GroupPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
 import CreateGroupPage from './pages/CreateGroupPage';
 import PayPage from './pages/PayPage';
@@ -56,13 +57,24 @@ function App() {
             The ProtectedRoute component will handle the redirect if the user is not logged in.
           */}
           <Route
-            path="/dashboard"
+            path="/home"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <HomePage />
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/groups"
+            element={
+              <ProtectedRoute>
+                <GroupPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route path="/dashboard" element={<Navigate to="/home" replace />} />
 
           <Route
             path="/group/:groupId"
@@ -133,7 +145,7 @@ function App() {
             If the user goes to the root URL '/', redirect them to /dashboard.
             The `Replace` prop is used to replace the current entry in the history stack.
           */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/home" replace />} />
         </Routes>
       </AuthProvider>
     </Router>

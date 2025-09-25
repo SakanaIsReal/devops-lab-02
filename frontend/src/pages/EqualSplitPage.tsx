@@ -11,7 +11,6 @@ export default function EqualSplitPage() {
     const [amount, setAmount] = useState("");
     const [excludeOpen, setExcludeOpen] = useState(false);
     const [excluded, setExcluded] = useState<number[]>([]);
-    const [activeTab, setActiveTab] = useState<NavTab>('split');
     const navigate = useNavigate();
 
     const participants = [
@@ -129,7 +128,7 @@ export default function EqualSplitPage() {
             </div>
 
             {/* Bottom Nav fixed at bottom */}
-            <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+            <BottomNav activeTab={undefined} />
         </div>
     );
 }

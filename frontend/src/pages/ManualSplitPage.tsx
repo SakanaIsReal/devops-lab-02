@@ -38,7 +38,6 @@ export default function ManualSplitPage() {
     const [percentages, setPercentages] = useState<{ [key: number]: string }>({});
     const [splitResult, setSplitResult] = useState<SplitResult | null>(null);
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<NavTab>('split');
 
     const participants = [
         { id: 1, name: "Krittanon" },
@@ -488,7 +487,7 @@ export default function ManualSplitPage() {
                     </div>
                 )}
             </div>
-            <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+            <BottomNav activeTab={undefined} />
         </div>
     );
 }

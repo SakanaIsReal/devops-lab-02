@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav, NavTab } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import { mockGetBillDetailApi } from '../utils/mockApi';
+import { getBillDetails } from '../utils/api';
 import type { BillDetail } from '../types';
 
 const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
@@ -26,7 +26,7 @@ export const BillDetailPage: React.FC = () => {
 
   useEffect(() => {
     if (billId) {
-      mockGetBillDetailApi(billId)
+      getBillDetails(billId)
         .then((data) => {
           setBill(data);
           setLoading(false);
@@ -37,20 +37,6 @@ export const BillDetailPage: React.FC = () => {
         });
     }
   }, [billId]);
-
-  const handleTabChange = (tab: NavTab) => {
-    switch (tab) {
-      case 'home':
-        navigate('/dashboard');
-        break;
-      case 'groups':
-        navigate('/creategroup');
-        break;
-      case 'split':
-        navigate('/dashboard');
-        break;
-    }
-  };
 
   const handlePayClick = (status: 'done' | 'pay' | 'check') => {
     if (status === 'pay' && bill) {
@@ -114,7 +100,7 @@ export const BillDetailPage: React.FC = () => {
           </>
         )}
       </div>
-      <BottomNav activeTab={undefined} onTabChange={handleTabChange} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

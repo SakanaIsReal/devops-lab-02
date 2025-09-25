@@ -1,4 +1,4 @@
-import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   HomeIcon,
   UserGroupIcon,
@@ -9,28 +9,28 @@ export type NavTab = "home" | "groups" | "split" | undefined;
 
 interface BottomNavProps {
   activeTab: NavTab;
-  onTabChange: (tab: NavTab) => void;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({
-  activeTab,
-  onTabChange,
-}) => {
-  const navItems: { id: NavTab; label: string; icon: React.ReactElement }[] = [
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab }) => {
+  const navigate = useNavigate();
+  const navItems: { id: NavTab; label: string; icon: React.ReactElement; path: string }[] = [
     {
       id: "home",
       label: "Home",
       icon: <HomeIcon className="w-6 h-6" />,
+      path: "/home",
     },
     {
       id: "groups",
       label: "Group",
       icon: <UserGroupIcon className="w-6 h-6" />,
+      path: "/groups",
     },
     // {
     //   id: "split",
     //   label: "Split",
     //   icon: <CurrencyDollarIcon className="w-6 h-6" />,
+    //   path: "/split",
     // },
   ];
   return (
@@ -42,7 +42,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           return (
             <button
               key={item.id}
-              onClick={() => onTabChange(item.id)}
+              onClick={() => navigate(item.path)}
               className={`flex flex-col items-center py-3 px-4 transition-color ${
                 isActive ? "text-white" : "text-gray-400"
               }`}

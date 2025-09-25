@@ -5,7 +5,7 @@ import Navbar from "../components/Navbar";
 import { BottomNav, NavTab } from "../components/BottomNav";
 import TransactionList from "../components/TransactionList";
 import FAB from "../components/FAB";
-import { mockGetGroupDetailsApi } from "../utils/mockApi";
+import { getGroupDetails } from "../utils/api";
 import { Group } from "../types";
 
 export const GroupDetailPage: React.FC = () => {
@@ -14,13 +14,12 @@ export const GroupDetailPage: React.FC = () => {
   const location = useLocation();
   const [group, setGroup] = useState<Group | null>(location.state?.group || null);
   const [loading, setLoading] = useState(!location.state?.group);
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
 
   useEffect(() => {
     if (!group && groupId) {
       const fetchGroupDetails = async () => {
         try {
-          const fetchedGroup = await mockGetGroupDetailsApi(groupId);
+          const fetchedGroup = await getGroupDetails(groupId);
           if (fetchedGroup) {
             setGroup(fetchedGroup);
           }
@@ -75,7 +74,7 @@ export const GroupDetailPage: React.FC = () => {
         {groupId && <TransactionList groupId={groupId} />}
       </div>
       <FAB onClick={handleFabClick} />
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

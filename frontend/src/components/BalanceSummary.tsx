@@ -1,12 +1,26 @@
 import { ExclamationTriangleIcon, CheckCircleIcon } from "@heroicons/react/24/solid";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Transaction } from "../types";
-import { transactions } from "../utils/mockApi";
+import { getTransactions } from "../utils/api";
 import { useNavigate } from "react-router-dom";
 
 export default function BalanceSummary() {
   const [activeFilter, setActiveFilter] = useState("All");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        const data = await getTransactions();
+        setTransactions(data);
+      } catch (error) {
+        console.error("Failed to fetch transactions", error);
+      }
+    };
+
+    fetchTransactions();
+  }, []);
 
   const sortedTransactions = [...transactions].sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime());
 

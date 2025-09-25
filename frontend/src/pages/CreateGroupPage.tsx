@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import CircleBackButton from '../components/CircleBackButton';
 import Navbar from '../components/Navbar';
 import { UserPlusIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { mockSearchUsersApi, mockCreateGroupApi } from '../utils/mockApi';
+import { searchUsers, createGroup } from '../utils/api';
 import { User } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -31,7 +31,7 @@ const CreateGroupPage: React.FC = () => {
 
     const search = async () => {
       setIsSearching(true);
-      const results = await mockSearchUsersApi(participantName);
+      const results = await searchUsers(participantName);
       setSearchResults(results.filter(u => u.id !== user?.id)); // Exclude current user from search results
       setIsSearching(false);
     };
@@ -58,7 +58,7 @@ const CreateGroupPage: React.FC = () => {
   const handleCreateGroup = async () => {
     setIsCreating(true);
     try {
-      const newGroup = await mockCreateGroupApi(groupName, participants);
+      const newGroup = await createGroup(groupName, participants);
       navigate(`/group/${newGroup.id}`, { state: { group: newGroup } });
     } catch (error) {
       console.error("Error creating group:", error);

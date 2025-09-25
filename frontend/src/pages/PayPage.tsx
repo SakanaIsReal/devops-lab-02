@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import CircleBackButton from '../components/CircleBackButton';
 import Navbar from '../components/Navbar';
-import { mockGetPaymentDetailsApi } from '../utils/mockApi';
+import { getPaymentDetails } from '../utils/api';
 import { PaymentDetails } from '../types';
 import { BottomNav, NavTab } from '../components/BottomNav';
 
@@ -18,7 +18,7 @@ const PayPage: React.FC = () => {
     if (transactionId) {
       const fetchPaymentDetails = async () => {
         try {
-          const details = await mockGetPaymentDetailsApi(transactionId);
+          const details = await getPaymentDetails(transactionId);
           setPaymentDetails(details);
         } catch (error) {
           console.error("Error fetching payment details:", error);
@@ -92,11 +92,7 @@ const PayPage: React.FC = () => {
           </button>
         </div>
       </div>
-      <BottomNav activeTab={undefined} onTabChange={(tab: NavTab) => {
-        if (tab === 'home' || tab === 'groups' || tab === 'split') {
-          navigate('/dashboard');
-        }
-      }} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };
