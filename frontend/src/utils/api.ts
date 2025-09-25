@@ -37,10 +37,20 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
     };
 };
 
-// Rest of your API functions remain the same...
-export const signUpApi = async (firstName: string, lastName: string, email: string, password: string): Promise<User> => {
-    const response = await api.post('/api/auth/register', { name: `${firstName} ${lastName}`, email, password });
-    return response.data;
+// In your ../utils/api file, update the signUpApi function:
+export const signUpApi = async (
+  userName: string, 
+  email: string, 
+  password: string, 
+  phone?: string
+): Promise<User> => {
+  const response = await api.post('/api/auth/register', { 
+    userName, 
+    email, 
+    password, 
+    phone: phone || "" // Send empty string if phone is not provided
+  });
+  return response.data;
 };
 
 export const getTransactions = async (): Promise<any[]> => {
