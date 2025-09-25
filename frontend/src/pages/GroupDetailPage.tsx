@@ -14,7 +14,6 @@ export const GroupDetailPage: React.FC = () => {
   const location = useLocation();
   const [group, setGroup] = useState<Group | null>(location.state?.group || null);
   const [loading, setLoading] = useState(!location.state?.group);
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
 
   useEffect(() => {
     if (!group && groupId) {
@@ -75,7 +74,7 @@ export const GroupDetailPage: React.FC = () => {
         {groupId && <TransactionList groupId={groupId} />}
       </div>
       <FAB onClick={handleFabClick} />
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

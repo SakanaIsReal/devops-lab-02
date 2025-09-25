@@ -38,20 +38,6 @@ export const BillDetailPage: React.FC = () => {
     }
   }, [billId]);
 
-  const handleTabChange = (tab: NavTab) => {
-    switch (tab) {
-      case 'home':
-        navigate('/dashboard');
-        break;
-      case 'groups':
-        navigate('/creategroup');
-        break;
-      case 'split':
-        navigate('/dashboard');
-        break;
-    }
-  };
-
   const handlePayClick = (status: 'done' | 'pay' | 'check') => {
     if (status === 'pay' && bill) {
         navigate(`/pay/${bill.id}`);
@@ -114,7 +100,7 @@ export const BillDetailPage: React.FC = () => {
           </>
         )}
       </div>
-      <BottomNav activeTab={undefined} onTabChange={handleTabChange} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

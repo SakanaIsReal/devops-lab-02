@@ -92,11 +92,7 @@ const PayPage: React.FC = () => {
           </button>
         </div>
       </div>
-      <BottomNav activeTab={undefined} onTabChange={(tab: NavTab) => {
-        if (tab === 'home' || tab === 'groups' || tab === 'split') {
-          navigate('/dashboard');
-        }
-      }} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

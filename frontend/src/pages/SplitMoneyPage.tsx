@@ -1,39 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { BottomNav, NavTab } from '../components/BottomNav';
+import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import BalanceSummary from '../components/BalanceSummary';
-import GroupList from '../components/GroupList';
-export default function SplitMoneyPage() {
-    const [activeTab, setActiveTab] = useState<NavTab>('split');
-    const navigate = useNavigate();
-    const renderTabContent = () => {
-        switch (activeTab) {
-            case 'home':
-                return (
-                    <div>
-                        <BalanceSummary />
-                    </div>
 
-                )
-            case 'groups':
-                return (
-                    <div>
-                        <GroupList />
-                    </div>
-                );
-            case 'split':
-                return (
-                    <div>
-                        <h2 className="text-2xl font-semibold mb-4">Split Expense</h2>
-                        <p className="text-gray-600">Create a new expense to split.</p>
-                    </div>
-                );
-            default:
-                return <div>Page not found.</div>
-        }
-    }
+export default function SplitMoneyPage() {
+    const navigate = useNavigate();
+
       const handleBack = () => {
         navigate(-1);
     };
@@ -80,7 +53,7 @@ export default function SplitMoneyPage() {
                 </div>
 
             </div>
-            <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+            <BottomNav activeTab={undefined} />
         </div>
     )
 }

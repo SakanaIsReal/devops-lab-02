@@ -133,7 +133,7 @@ export const AccountPage: React.FC = () => {
           </div>
         </div>
       </div>
-      <BottomNav activeTab={'home'} onTabChange={() => {}} />
+      <BottomNav activeTab={'home'} />
     </div>
   );
 };
