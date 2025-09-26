@@ -55,7 +55,8 @@ public class AuthService {
         return new AuthResponse(
                 token, "Bearer",
                 u.getId(), u.getEmail(), u.getUserName(),
-                roleCode
+                roleCode,
+                u.getPhone(), u.getAvatarUrl(), u.getQrCodeUrl()
         );
     }
 
@@ -83,7 +84,8 @@ public class AuthService {
         return new AuthResponse(
                 token, "Bearer",
                 u.getId(), u.getEmail(), u.getUserName(),
-                roleCode
+                roleCode,
+                u.getPhone(), u.getAvatarUrl(), u.getQrCodeUrl()
         );
     }
 }
