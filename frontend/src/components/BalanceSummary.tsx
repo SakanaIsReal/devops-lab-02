@@ -58,11 +58,18 @@ export default function BalanceSummary() {
       </div>
 
       {/* Tabs */}
-      <div className="flex space-x-2">
+      <div className="flex space-x-2" data-cy='filter-tabs'>
         {["All", "This Week", "This Month"].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveFilter(tab)}
+            data-cy={
+              tab === "All"
+              ? "tab-all"
+              : tab === "This Week"
+              ? "tab-week"
+              : "tab-month"
+            }
             className={`px-4 py-2 rounded-full text-sm font-medium ${
               activeFilter === tab
                 ? "bg-gray-200 text-gray-900"
@@ -105,6 +112,7 @@ export default function BalanceSummary() {
               
               <button
                 onClick={() => navigate(`/pay/${t.id}`)}
+                data-cy={isOwed ? "btn-remind" : "btn-pay"}
                 className={`mt-2 px-6 py-2 rounded-full text-sm font-medium ${
                   !isOwed
                     ? "bg-gray-900 text-white"

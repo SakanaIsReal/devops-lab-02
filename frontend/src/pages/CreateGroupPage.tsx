@@ -133,6 +133,7 @@ const CreateGroupPage: React.FC = () => {
                   onChange={(e) => setGroupName(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
                   placeholder="Enter group name"
+                  data-cy="input-group-name"
                 />
               </div>
 
@@ -148,6 +149,7 @@ const CreateGroupPage: React.FC = () => {
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
                     placeholder="Enter participant's username"
                     autoComplete="off"
+                    data-cy="input-participant"
                   />
                   {isSearching && (
                     <div className="absolute right-3 top-3">
@@ -155,7 +157,9 @@ const CreateGroupPage: React.FC = () => {
                     </div>
                   )}
                   {searchResults.length > 0 && (
-                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-64 overflow-auto">
+                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-64 overflow-auto"
+                    data-cy="search-results">
+                      
                       {searchResults.map(u => (
                         <li
                           key={String(u.id)}
@@ -199,6 +203,7 @@ const CreateGroupPage: React.FC = () => {
                           className="text-red-500 hover:text-red-700"
                           disabled={String(u.id) === String(user?.id)} // ไม่ให้ลบ owner ตัวเองออก
                           title={String(u.id) === String(user?.id) ? 'Owner cannot be removed' : 'Remove'}
+                          data-cy="btn-remove-participant"
                         >
                           <TrashIcon className="w-5 h-5" />
                         </button>
@@ -213,6 +218,7 @@ const CreateGroupPage: React.FC = () => {
                 onClick={handleCreateGroup}
                 className="w-full bg-gray-900 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-800 transition duration-300 flex items-center justify-center disabled:opacity-60"
                 disabled={isCreating}
+                data-cy="btn-create-group"
               >
                 {isCreating && <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-3"></div>}
                 {isCreating ? 'Creating...' : 'Create Group'}

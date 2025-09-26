@@ -48,6 +48,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab }) => {
               }`}
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}
+              data-cy={`bottom-nav-${item.id}`}
             >
               <div className={isActive ? "text-white" : "text-gray-400"}>
                 {item.icon}

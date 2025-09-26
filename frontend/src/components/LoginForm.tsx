@@ -94,6 +94,7 @@ export const LoginForm: React.FC = () => {
         placeholder="user@example.com"
         disabled={isLoading}
         required
+        data-cy="login-email-input"
       />
 
       <Input
@@ -105,6 +106,7 @@ export const LoginForm: React.FC = () => {
         placeholder="Your password"
         disabled={isLoading}
         required
+        data-cy="login-password-input"
       />
 
       {/* Submit Button */}
@@ -116,6 +118,7 @@ export const LoginForm: React.FC = () => {
             ? "bg-gray-400 cursor-not-allowed"
             : "bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         }`}
+        data-cy="login-submit-button"
       >
         {isLoading ? "Logging in..." : "Log In"}
       </button>
@@ -129,6 +132,7 @@ export const LoginForm: React.FC = () => {
             ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
             : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
         }`}
+        data-cy="login-signup-button"
       >
         Sign Up
       </button>

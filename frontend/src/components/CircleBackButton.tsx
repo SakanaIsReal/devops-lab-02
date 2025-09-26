@@ -15,6 +15,7 @@ const CircleBackButton: React.FC<CircleBackButtonProps> = ({
   return (
     <button
       onClick={onClick}
+      data-cy="btn-back"
       className={`
         w-10 m-4
         flex items-center justify-start p-3 rounded-full mb-4

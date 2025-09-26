@@ -117,7 +117,7 @@ const PayPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen">
+      <div className="flex justify-center items-center h-screen" data-cy="loading">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-gray-900"></div>
       </div>
     );
@@ -134,16 +134,16 @@ const PayPage: React.FC = () => {
             <div className="mb-6">
               <div className="text-yellow-600 text-6xl mb-4">⏳</div>
               <h2 className="text-2xl font-bold text-yellow-700 mb-2">Pending Payment Exists</h2>
-              <p className="text-gray-600 mb-4">
+              <p className="text-gray-600 mb-4" data-cy="pending-desc">
                 You already have a pending payment for this expense. Please wait for the current payment to be verified before submitting a new one.
               </p>
               
               {pendingPaymentInfo && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4" data-cy="pending-details">
                   <h3 className="font-semibold text-yellow-800 mb-2">Pending Payment Details:</h3>
-                  <p className="text-yellow-700">Amount: ${pendingPaymentInfo.amount.toFixed(2)}</p>
-                  <p className="text-yellow-700">Submitted: {pendingPaymentInfo.createdAt}</p>
-                  <p className="text-yellow-700 text-sm mt-2">Status: Waiting for verification</p>
+                  <p className="text-yellow-700" data-cy="pending-amount">Amount: ${pendingPaymentInfo.amount.toFixed(2)}</p>
+                  <p className="text-yellow-700" data-cy="pending-created">Submitted: {pendingPaymentInfo.createdAt}</p>
+                  <p className="text-yellow-700 text-sm mt-2" data-cy="pending-status">Status: Waiting for verification</p>
                 </div>
               )}
               
@@ -151,12 +151,14 @@ const PayPage: React.FC = () => {
                 <button
                   onClick={() => navigate("/home")}
                   className="flex-1 bg-gray-900 text-white py-2 px-4 rounded-lg font-semibold"
+                  data-cy="btn-go-dashboard"
                 >
                   Go to Dashboard
                 </button>
                 <button
                   onClick={() => navigate(-1)}
                   className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg font-semibold"
+                  data-cy="btn-go-back"
                 >
                   Go Back
                 </button>
@@ -175,7 +177,7 @@ const PayPage: React.FC = () => {
         <Navbar />
         <div className="p-4">
           <CircleBackButton onClick={() => navigate(-1)} />
-          <div className="text-center mt-8 text-red-600">{error}</div>
+          <div className="text-center mt-8 text-red-600" data-cy="error-top">{error}</div>
         </div>
       </div>
     );
@@ -203,13 +205,13 @@ const PayPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-left" style={{color: '#2c4359'}}>QR CODE</h2>
         </div>
         
-        <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6 text-center">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6 text-center" data-cy="pay-container">
           {/* Payment Summary */}
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-lg font-semibold mb-2">Payer: {paymentDetails.payerName}</p>
-            <p className="text-sm text-gray-600">Owed Amount: ${paymentDetails.owedAmount?.toFixed(2)}</p>
-            <p className="text-sm text-gray-600">Already Paid: ${paymentDetails.paidAmount?.toFixed(2)}</p>
-            <p className="text-xl font-bold mt-2" style={{color: '#0d78f2'}}>
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg" data-cy="summary">
+            <p className="text-lg font-semibold mb-2" data-cy="payer-name">Payer: {paymentDetails.payerName}</p>
+            <p className="text-sm text-gray-600" data-cy="owed-amount">Owed Amount: ${paymentDetails.owedAmount?.toFixed(2)}</p>
+            <p className="text-sm text-gray-600" data-cy="paid-amount">Already Paid: ${paymentDetails.paidAmount?.toFixed(2)}</p>
+            <p className="text-xl font-bold mt-2" style={{color: '#0d78f2'}} data-cy="remaining-amount">
               Remaining: ${paymentDetails.amountToPay.toFixed(2)}
             </p>
             <p className={`text-sm font-semibold mt-1 ${paymentDetails.settled ? 'text-green-600' : 'text-yellow-600'}`}>
@@ -219,7 +221,8 @@ const PayPage: React.FC = () => {
 
           {/* QR Code */}
           {paymentDetails.qrCodeUrl && (
-            <img src={paymentDetails.qrCodeUrl} alt="QR Code" className="mx-auto w-48 h-48 mb-4 border rounded-lg" />
+            <img src={paymentDetails.qrCodeUrl} alt="QR Code" className="mx-auto w-48 h-48 mb-4 border rounded-lg" 
+            data-cy="qr-image"/>
           )}
           
           {/* Amount Input */}
@@ -238,8 +241,9 @@ const PayPage: React.FC = () => {
               max={paymentDetails.amountToPay}
               step="0.01"
               required
+              data-cy="input-amount-paid"
             />
-            <p className="text-xs text-gray-500 text-left mt-1">
+            <p className="text-xs text-gray-500 text-left mt-1" data-cy="max-amount">
               Maximum: ${paymentDetails.amountToPay.toFixed(2)}
             </p>
           </div>
@@ -256,12 +260,13 @@ const PayPage: React.FC = () => {
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
               accept="image/*,.pdf"
               required
+              data-cy="file-input-slip"
             />
             <p className="text-xs text-gray-500 text-left mt-1">
               Required: Upload receipt proof (JPG, PNG, PDF)
             </p>
             {paymentSlip && (
-              <p className="text-xs text-green-600 text-left mt-1">
+              <p className="text-xs text-green-600 text-left mt-1" data-cy="file-selected">
                 ✓ File selected: {paymentSlip.name}
               </p>
             )}
@@ -269,7 +274,7 @@ const PayPage: React.FC = () => {
 
           {/* Error Message */}
           {error && (
-            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded text-sm">
+            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded text-sm" data-cy="error-inline">
               {error}
             </div>
           )}
@@ -285,7 +290,7 @@ const PayPage: React.FC = () => {
             }`}
             style={{
               backgroundColor: submitting || !amountPaid || !paymentSlip ? '#9ca3af' : '#0d78f2'
-            }}
+            }} data-cy="btn-pay-now"
           >
             {submitting ? 'Processing...' : 'Pay'}
           </button>

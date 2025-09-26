@@ -57,6 +57,6 @@
   },
   // Which files to include in the compilation
   "include": [
-    "src/**/*" // This means "all files in the src folder and its subfolders"
+    "src/**/*","cypress" // This means "all files in the src folder and its subfolders"
   ]
 }

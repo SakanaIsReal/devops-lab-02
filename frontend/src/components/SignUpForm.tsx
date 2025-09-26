@@ -86,6 +86,7 @@ export const SignUpForm: React.FC = () => {
         placeholder="johndoe"
         disabled={isLoading}
         required
+        data-cy="username-input-signup"
       />
 
       <Input
@@ -97,6 +98,7 @@ export const SignUpForm: React.FC = () => {
         placeholder="user@example.com"
         disabled={isLoading}
         required
+        data-cy="email-input-signup"
       />
 
       <Input
@@ -107,6 +109,7 @@ export const SignUpForm: React.FC = () => {
         onChange={handleInputChange}
         placeholder="+1234567890"
         disabled={isLoading}
+        data-cy="phone-input-signup"
       />
 
       <Input
@@ -118,6 +121,7 @@ export const SignUpForm: React.FC = () => {
         placeholder="Your password"
         disabled={isLoading}
         required
+        data-cy="password-input-signup"
       />
 
       <Input
@@ -129,11 +133,13 @@ export const SignUpForm: React.FC = () => {
         placeholder="Confirm your password"
         disabled={isLoading}
         required
+        data-cy="confirm-password-input-signup"
       />
 
       <button
         type="submit"
         disabled={isLoading}
+        data-cy="btn-signup"
         className={`mt-2 py-2 px-4 rounded-lg font-medium text-white transition-colors ${
           isLoading
             ? "bg-gray-400 cursor-not-allowed"
@@ -147,6 +153,7 @@ export const SignUpForm: React.FC = () => {
         type="button"
         onClick={() => navigate("/login")}
         disabled={isLoading}
+        data-cy="btn-login-redirect"
         className={`py-2 px-4 rounded-lg font-medium border transition-colors ${
           isLoading
             ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"

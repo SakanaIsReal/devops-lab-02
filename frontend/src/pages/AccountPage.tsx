@@ -137,6 +137,7 @@ export const AccountPage: React.FC = () => {
               />
               <label
                 htmlFor="avatar-upload"
+                data-cy="upload-avatar-button"
                 className="cursor-pointer bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg text-sm"
               >
                 Open Gallery
@@ -151,6 +152,7 @@ export const AccountPage: React.FC = () => {
                     type="text"
                     id="userName"
                     name="userName"
+                    data-cy="username-input"
                     value={formUserUpdate.userName}
                     onChange={handleInputChange}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
@@ -162,6 +164,7 @@ export const AccountPage: React.FC = () => {
                     type="email"
                     id="email"
                     name="email"
+                    data-cy="email-input"
                     value={formUserUpdate.email}
                     onChange={handleInputChange}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
@@ -173,6 +176,7 @@ export const AccountPage: React.FC = () => {
                     type="tel"
                     id="phone"
                     name="phone"
+                    data-cy="phone-input"
                     value={formUserUpdate.phone}
                     onChange={handleInputChange}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
@@ -186,6 +190,7 @@ export const AccountPage: React.FC = () => {
                     type="file"
                     id="qr-code-upload"
                     name="qr-code-upload"
+                    data-cy="upload-qr-btn"
                     className="hidden"
                     accept="image/*"
                     onChange={handleQrCodeSelect}
@@ -202,7 +207,7 @@ export const AccountPage: React.FC = () => {
               </div>
               <button
                 type="submit"
-
+                data-cy="account-save-button"
                 className="w-full mt-6 bg-[#52bf52] text-white font-semibold py-2 px-4 rounded-lg hover:bg-[#47a647] transition duration-300"
               >
                 Save Changes
