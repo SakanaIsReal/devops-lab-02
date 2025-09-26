@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 // Import our Context
 import { AuthProvider } from './contexts/AuthContext';
 // Import our Pages
+import EditGroupPage from './pages/EditGroupPage';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { GroupPage } from './pages/GroupPage';
@@ -64,6 +65,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/group/:id/edit" element={<EditGroupPage />} /> 
 
           <Route
             path="/groups"
@@ -138,6 +140,8 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          
 
 
           {/* 
