@@ -442,3 +442,43 @@ export const removeMembers = async (groupId: number | string, userIds: Array<num
     }
   }
 };
+// utils/api.ts
+export type CreateExpensePayload = {
+  groupId: number | string;
+  payerUserId: number | string;   // คนจ่าย (เอา current user ก็ได้)
+  amount: number;
+  title: string;                  // ชื่อบิล
+  type?: 'EQUAL' | 'CUSTOM';
+  status?: 'PENDING' | 'SETTLED';
+  createdAt?: string;
+};
+
+// utils/api.ts
+export const createBill = async (p: {
+  groupId: number | string;
+  payerUserId: number | string;   // ผู้จ่าย
+  amount: number | string;
+  title: string;                  // ชื่อบิล
+  type?: 'EQUAL' | 'CUSTOM';
+  status?: 'PENDING' | 'SETTLED';
+}) => {
+  const body = {
+    groupId: Number(p.groupId),
+    payerUserId: Number(p.payerUserId),
+    amount: Number(p.amount),
+    type: p.type ?? 'EQUAL',
+    title: p.title,
+    status: p.status ?? 'SETTLED',     // จาก Swagger ในรูป
+  };
+
+  // กันพลาด: validate ง่าย ๆ ก่อนส่ง
+  if (!Number.isFinite(body.groupId) || !Number.isFinite(body.payerUserId) || !Number.isFinite(body.amount)) {
+    throw new Error('Invalid payload: groupId/payerUserId/amount must be numbers');
+  }
+
+  const { data } = await api.post('/api/expenses', body, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return data; // ควรได้ { id, ... }
+};
+
