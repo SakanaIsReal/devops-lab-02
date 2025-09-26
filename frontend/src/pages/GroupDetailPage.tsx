@@ -40,7 +40,9 @@ export const GroupDetailPage: React.FC = () => {
 
   const handleFabClick = () => {
     console.log("FAB clicked");
-    // Add your create logic here
+      navigate("/splitmoney", {
+    state: { groupId },
+  });
   };
 
   if (loading) {
