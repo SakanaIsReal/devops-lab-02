@@ -2,8 +2,9 @@ export interface User {
     id: string;
     email: string;
     name: string;
-    imageUrl?: string;
-    phone?: string;
+    phone: string;
+    imageUrl: string;
+    qrCodeUrl : string;
 }
 
 export interface AuthContextType {
@@ -11,6 +12,7 @@ export interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     isLoading: boolean;
+    updateUser: (user: User) => void;
 }
 
 export interface Transaction {
@@ -55,4 +57,12 @@ export interface Bill extends BillDetail {
   groupId: string;
   name: string;
   status: 'pending' | 'completed';
+}
+
+export interface UserUpdateForm {
+    userName : string ;
+    email: string ;
+    phone: string ;
+    avatar: File | string ;
+    qr: File | string ;
 }
