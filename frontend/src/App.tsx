@@ -1,27 +1,32 @@
 // Import React
-import React from 'react';
+import React from "react";
 // Import Router components
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 // Import our Context
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider } from "./contexts/AuthContext";
 // Import our Pages
-import EditGroupPage from './pages/EditGroupPage';
-import { LoginPage } from './pages/LoginPage';
-import { HomePage } from './pages/HomePage';
-import { GroupPage } from './pages/GroupPage';
-import { GroupDetailPage } from './pages/GroupDetailPage';
-import CreateGroupPage from './pages/CreateGroupPage';
-import PayPage from './pages/PayPage';
-import SignUpPage from './pages/SignUpPage';
-import { AccountPage } from './pages/AccountPage';
-//Split Money 
-import SplitMoneyPage from './pages/SplitMoneyPage';
-import ManualSplitPage from './pages/ManualSplitPage';
-import EqualSplitPage from './pages/EqualSplitPage';
-import { BillDetailPage } from './pages/BillDetailPage';
+import EditGroupPage from "./pages/EditGroupPage";
+import { LoginPage } from "./pages/LoginPage";
+import { HomePage } from "./pages/HomePage";
+import { GroupPage } from "./pages/GroupPage";
+import { GroupDetailPage } from "./pages/GroupDetailPage";
+import CreateGroupPage from "./pages/CreateGroupPage";
+import PayPage from "./pages/PayPage";
+import SignUpPage from "./pages/SignUpPage";
+import { AccountPage } from "./pages/AccountPage";
+//Split Money
+import SplitMoneyPage from "./pages/SplitMoneyPage";
+import ManualSplitPage from "./pages/ManualSplitPage";
+import EqualSplitPage from "./pages/EqualSplitPage";
+import { BillDetailPage } from "./pages/BillDetailPage";
 // Import our Protected Route component
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { PublicRoute } from './components/PublicRoute';
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { PublicRoute } from "./components/PublicRoute";
 
 function App() {
   return (
@@ -65,7 +70,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="/group/:id/edit" element={<EditGroupPage />} /> 
+          <Route path="/group/:id/edit" element={<EditGroupPage />} />
 
           <Route
             path="/groups"
@@ -97,7 +102,7 @@ function App() {
           />
 
           <Route
-            path="/pay/:transactionId"
+            path="/pay/:expenseId/:userId"
             element={
               <ProtectedRoute>
                 <PayPage />
@@ -113,24 +118,9 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/splitmoney"
-            element={
-              <SplitMoneyPage />
-            }
-          />
-          <Route
-            path="/manualsplit"
-            element={
-              <ManualSplitPage />
-            }
-          />
-          <Route
-            path="/equalsplit"
-            element={
-              <EqualSplitPage />
-            }
-          />
+          <Route path="/splitmoney" element={<SplitMoneyPage />} />
+          <Route path="/manualsplit" element={<ManualSplitPage />} />
+          <Route path="/equalsplit" element={<EqualSplitPage />} />
 
           <Route
             path="/bill/:billId"
@@ -140,9 +130,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-         
-          
-
 
           {/* 
             Catch-all route. 

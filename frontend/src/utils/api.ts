@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Group, Transaction, User } from '../types';
+import { Group, PaymentDetails, Settlement, Transaction, User } from '../types';
 import { UserUpdateForm } from '../types/index'
 const API_BASE_URL = 'http://localhost:8081';
 
@@ -62,7 +62,7 @@ export const getUserInformation = async (userId: string | number,): Promise<any>
 
 
 export const getTransactions = async (): Promise<any[]> => {
-    const response = await api.get('/transactions');
+    const response = await api.get('/api/transactions');
     return response.data;
 };
 
@@ -72,28 +72,19 @@ export const getGroups = async (): Promise<any[]> => {
 };
 
 
-export const searchUsers = async (q: string): Promise<User[]> => {
-  const response = await api.get("api/users/search", { params: { q } }); // ไม่ต้องต่อ ?q= เอง
-  return response.data;
-};
-
-export const groupmember = async (groupId: string): Promise<User[]> => {
-  const response = await api.post(`/api/groups/${groupId}/members`);
-  return response.data;
+export const searchUsers = async (query: string): Promise<any[]> => {
+    const response = await api.get(`/api/users/search?q=${query}`);
+    return response.data;
 };
 
 
 
 
 export const getBillDetails = async (billId: string): Promise<any> => {
-    const response = await api.get(`/bills/${billId}`);
+    const response = await api.get(`/api/bills/${billId}`);
     return response.data;
 };
 
-export const getPaymentDetails = async (transactionId: string): Promise<any> => {
-    const response = await api.get(`/payment-details/${transactionId}`);
-    return response.data;
-};
 // Update your ../utils/api file
 
 export const getGroupDetails = async (groupId: string): Promise<Group> => {
@@ -442,16 +433,6 @@ export const removeMembers = async (groupId: number | string, userIds: Array<num
     }
   }
 };
-// utils/api.ts
-export type CreateExpensePayload = {
-  groupId: number | string;
-  payerUserId: number | string;   // คนจ่าย (เอา current user ก็ได้)
-  amount: number;
-  title: string;                  // ชื่อบิล
-  type?: 'EQUAL' | 'CUSTOM';
-  status?: 'PENDING' | 'SETTLED';
-  createdAt?: string;
-};
 
 // utils/api.ts
 export const createBill = async (p: {
@@ -482,3 +463,99 @@ export const createBill = async (p: {
   return data; // ควรได้ { id, ... }
 };
 
+
+
+// Add these functions to your api.ts file
+
+// Get settlement details for a specific expense and user
+export const getSettlementDetails = async (expenseId: number, userId: number): Promise<Settlement> => {
+    const response = await api.get(`/api/expenses/${expenseId}/settlement/${userId}`);
+    return response.data;
+};
+
+// Submit payment for a settlement
+// Replace the submitPayment function in api.ts with this corrected version:
+export const submitPayment = async (
+    expenseId: number, 
+    fromUserId: number,
+    amount: number,
+    receiptFile: File // Now required
+): Promise<any> => {
+    const formData = new FormData();
+    
+    // Add receipt file (required)
+    formData.append('recelpt', receiptFile); // Note: API expects 'recelpt' (typo in API)
+    
+    const response = await api.post(
+        `/api/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
+        formData
+    );
+    return response.data;
+};
+
+// Update the existing getPaymentDetails function to use the real API
+export const getPaymentDetails = async (expenseId: string, userId: string): Promise<PaymentDetails> => {
+    // First, get the settlement details from the real API
+    const settlement = await getSettlementDetails(Number(expenseId), Number(userId));
+    
+    // Then, get user information to populate payer name and QR code
+    let payerName = `User ${settlement.userId}`;
+    let qrCodeUrl = '';
+    
+    try {
+        const userInfo = await getUserInformation(settlement.userId.toString());
+        payerName = userInfo.name || userInfo.userName || payerName;
+        qrCodeUrl = userInfo.qrCodeUrl || userInfo.qrCode || '';
+    } catch (error) {
+        console.error("Error fetching user info:", error);
+        // Use default values if user info fetch fails
+        qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
+    }
+    
+    return {
+        transactionId: expenseId,
+        payerName: payerName,
+        amountToPay: settlement.remaining, // Use the remaining amount
+        qrCodeUrl: qrCodeUrl,
+        // Include settlement details for reference
+        expenseId: settlement.expenseId,
+        userId: settlement.userId,
+        owedAmount: settlement.owedAmount,
+        paidAmount: settlement.paidAmount,
+        settled: settlement.settled,
+        remaining: settlement.remaining
+    };
+};
+
+// Add this interface to your types file
+export interface Payment {
+  id: number;
+  expenseId: number;
+  fromUserId: number;
+  amount: number;
+  status: "PENDING" | "VERIFIED" | "REJECTED";
+  createdAt: string;
+  verifiedAt: string | null;
+  receiptId: number | null;
+  receiptFileUrl: string | null;
+}
+
+// Add this function to your api.ts file
+export const getExpensePayments = async (expenseId: number): Promise<Payment[]> => {
+  const response = await api.get(`/api/expenses/${expenseId}/payments`);
+  return response.data;
+};
+
+// Add this helper function to check if user has pending payment
+export const hasPendingPayment = async (expenseId: number, userId: number): Promise<boolean> => {
+  try {
+    const payments = await getExpensePayments(expenseId);
+    const userPendingPayments = payments.filter(payment => 
+      payment.fromUserId === userId && payment.status === "PENDING"
+    );
+    return userPendingPayments.length > 0;
+  } catch (error) {
+    console.error("Error checking pending payments:", error);
+    return false;
+  }
+};

@@ -157,3 +157,40 @@ export interface BillDetail {
   date: string;
   members: BillMember[];
 }
+
+// Add to your types file
+export interface Settlement {
+  expenseId: number;
+  userId: number;
+  owedAmount: number;
+  paidAmount: number;
+  settled: boolean;
+  remaining: number;
+}
+
+export interface PaymentDetails {
+  transactionId: string;
+  payerName: string;
+  amountToPay: number;
+  qrCodeUrl: string;
+  // Add settlement-specific fields
+  expenseId?: number;
+  userId?: number;
+  owedAmount?: number;
+  paidAmount?: number;
+  settled?: boolean;
+  remaining?: number;
+}
+
+// Add to your types file
+export interface PaymentResponse {
+    id: number;
+    expenseId: number;
+    fromUserId: number;
+    result: number;
+    status: string;
+    curricular: string; // This seems to be createdAt (typo in API)
+    verifiable: string; // This seems to be updatedAt (typo in API)
+    recelptlist: number; // Typo in API
+    recelptfiled: string; // Typo in API
+}
