@@ -24,22 +24,22 @@ export const mockLoginApi = (
   });
 };
 
-export const mockSignUpApi = (
-    firstName: string,
-    lastName: string,
-    email: string,
-    password: string
-    ): Promise<User> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({
-                id: "2",
-                email: email,
-                name: `${firstName} ${lastName}`,
-            });
-        }, 1500);
-    });
-};
+// export const mockSignUpApi = (
+//     firstName: string,
+//     lastName: string,
+//     email: string,
+//     password: string
+//     ): Promise<User> => {
+//     return new Promise((resolve) => {
+//         setTimeout(() => {
+//             resolve({
+//                 id: "2",
+//                 email: email,
+//                 name: `${firstName} ${lastName}`,
+//             });
+//         }, 1500);
+//     });
+// };
 
 export const transactions: Transaction[] = [
     {
@@ -248,28 +248,28 @@ export const mockGetGroupDetailsApi = (groupId: string): Promise<Group | undefin
   });
 };
 
-const mockUsers: User[] = [
-  { id: '1', name: 'Alice', email: 'alice@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/1.jpg', phone: '123-456-7890' },
-  { id: '2', name: 'Bob', email: 'bob@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/2.jpg', phone: '234-567-8901' },
-  { id: '3', name: 'Charlie', email: 'charlie@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/3.jpg', phone: '345-678-9012' },
-  { id: '4', name: 'David', email: 'david@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/4.jpg', phone: '456-789-0123' },
-  { id: '5', name: 'Eve', email: 'eve@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/5.jpg', phone: '567-890-1234' },
-];
+// const mockUsers: User[] = [
+//   { id: '1', name: 'Alice', email: 'alice@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/1.jpg', phone: '123-456-7890' },
+//   { id: '2', name: 'Bob', email: 'bob@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/2.jpg', phone: '234-567-8901' },
+//   { id: '3', name: 'Charlie', email: 'charlie@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/3.jpg', phone: '345-678-9012' },
+//   { id: '4', name: 'David', email: 'david@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/4.jpg', phone: '456-789-0123' },
+//   { id: '5', name: 'Eve', email: 'eve@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/5.jpg', phone: '567-890-1234' },
+// ];
 
-export const mockSearchUsersApi = (username: string): Promise<User[]> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (username === '') {
-        resolve([]);
-      } else {
-        const results = mockUsers.filter(user =>
-          user.name.toLowerCase().includes(username.toLowerCase())
-        );
-        resolve(results);
-      }
-    }, 300);
-  });
-};
+// export const mockSearchUsersApi = (username: string): Promise<User[]> => {
+//   return new Promise((resolve) => {
+//     setTimeout(() => {
+//       if (username === '') {
+//         resolve([]);
+//       } else {
+//         const results = mockUsers.filter(user =>
+//           user.name.toLowerCase().includes(username.toLowerCase())
+//         );
+//         resolve(results);
+//       }
+//     }, 300);
+//   });
+// };
 
 export const mockCreateGroupApi = (groupName: string, participants: User[]): Promise<Group> => {
   return new Promise((resolve) => {

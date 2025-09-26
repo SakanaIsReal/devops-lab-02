@@ -77,11 +77,17 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     console.log("User logged out.");
   };
 
+  const updateUser = (user: User): void => {
+    setUser(user);
+    localStorage.setItem('userData', JSON.stringify(user));
+  };
+
   const value: AuthContextType = {
     user,
     login,
     logout,
     isLoading,
+    updateUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

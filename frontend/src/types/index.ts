@@ -2,8 +2,9 @@ export interface User {
     id: string;
     email: string;
     name: string;
-    imageUrl?: string;
-    phone?: string;
+    phone: string;
+    imageUrl: string;
+    qrCodeUrl : string;
 }
 
 export interface AuthContextType {
@@ -46,6 +47,67 @@ export interface Bill extends BillDetail {
   groupId: string;
   name: string;
   status: 'pending' | 'completed';
+}
+
+export interface UserUpdateForm {
+    userName : string ;
+    email: string ;
+    phone: string ;
+    avatar: File | string ;
+    qr: File | string ;
+}
+
+// Update your types file (../types.ts)
+
+export interface Expense {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  participantCount: number;
+  imageUrl: string;
+  ownerUserId?: number;
+  coverImageUrl?: string;
+  memberCount?: number;
+}
+
+export interface Transaction {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+    // For compatibility with existing components
+    name?: string;
+    payer?: string;
+    date?: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}
+export interface UserUpdateForm {
+    userName : string ;
+    email: string ;
+    phone: string ;
+    avatar: File | string ;
+    qr: File | string ;
 }
 
 // Update your types file (../types.ts)
