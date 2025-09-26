@@ -1,3 +1,4 @@
+// Update TransactionList.tsx
 import React, { useState, useEffect } from 'react';
 import TransactionCard from './TransactionCard';
 import { getGroupTransactions } from '../utils/api';
@@ -30,13 +31,15 @@ const TransactionList: React.FC<TransactionListProps> = ({ groupId }) => {
 
   const filteredTransactions = transactions.filter(transaction => {
     if (filter === 'all') return true;
-    return transaction.status === filter;
+    if (filter === 'pending') return transaction.status === 'OPEN';
+    if (filter === 'completed') return transaction.status === 'SETTLED';
+    return true;
   });
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-gray-900"></div>
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-gray-900"></div>
       </div>
     );
   }
@@ -49,9 +52,13 @@ const TransactionList: React.FC<TransactionListProps> = ({ groupId }) => {
         <button onClick={() => setFilter('pending')} className={`px-3 py-1 rounded-full text-sm font-medium ${filter === 'pending' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'}`}>In Progress</button>
         <button onClick={() => setFilter('completed')} className={`px-3 py-1 rounded-full text-sm font-medium ${filter === 'completed' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'}`}>Completed</button>
       </div>
-      {filteredTransactions.map((transaction) => (
-        <TransactionCard key={transaction.id} transaction={transaction} />
-      ))}
+      {filteredTransactions.length === 0 ? (
+        <p className="text-gray-500 text-center py-4">No transactions found</p>
+      ) : (
+        filteredTransactions.map((transaction) => (
+          <TransactionCard key={transaction.id} transaction={transaction} />
+        ))
+      )}
     </div>
   );
 };

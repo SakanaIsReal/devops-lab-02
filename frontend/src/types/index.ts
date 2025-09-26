@@ -13,15 +13,6 @@ export interface AuthContextType {
     isLoading: boolean;
 }
 
-export interface Transaction {
-    id: number;
-    type: "owe" | "owed";
-    name: string;
-    amount: number;
-    description: string;
-    created_date: string;
-}
-
 export interface Group {
   id: string;
   name: string;
@@ -55,4 +46,50 @@ export interface Bill extends BillDetail {
   groupId: string;
   name: string;
   status: 'pending' | 'completed';
+}
+
+// Update your types file (../types.ts)
+
+export interface Expense {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  participantCount: number;
+  imageUrl: string;
+  ownerUserId?: number;
+  coverImageUrl?: string;
+  memberCount?: number;
+}
+
+export interface Transaction {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+    // For compatibility with existing components
+    name?: string;
+    payer?: string;
+    date?: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
 }

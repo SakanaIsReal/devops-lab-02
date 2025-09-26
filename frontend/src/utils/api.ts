@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { User } from '../types';
+import { Group, Transaction, User } from '../types';
 
 const API_BASE_URL = 'http://localhost:8081';
 
@@ -63,15 +63,6 @@ export const getGroups = async (): Promise<any[]> => {
     return response.data;
 };
 
-export const getGroupDetails = async (groupId: string): Promise<any> => {
-    const response = await api.get(`/groups/${groupId}`);
-    return response.data;
-};
-
-export const getGroupTransactions = async (groupId: string): Promise<any[]> => {
-    const response = await api.get(`/groups/${groupId}/transactions`);
-    return response.data;
-};
 
 export const searchUsers = async (query: string): Promise<any[]> => {
     const response = await api.get(`/users/search?q=${query}`);
@@ -90,5 +81,39 @@ export const getBillDetails = async (billId: string): Promise<any> => {
 
 export const getPaymentDetails = async (transactionId: string): Promise<any> => {
     const response = await api.get(`/payment-details/${transactionId}`);
+    return response.data;
+};
+// Update your ../utils/api file
+
+export const getGroupDetails = async (groupId: string): Promise<Group> => {
+    const response = await api.get(`/api/groups/${groupId}`);
+    return response.data;
+};
+
+export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
+    const response = await api.get(`/api/expenses/group/${groupId}`);
+    
+    // Transform the API response to match your frontend needs
+    const expenses = response.data;
+    return expenses.map((expense: any) => ({
+        ...expense,
+        // Map API fields to frontend expected fields
+        name: expense.title,
+        payer: `User ${expense.payerUserId}`, // You might need to fetch actual user names
+        date: new Date(expense.createdAt).toLocaleDateString(),
+        status: expense.status.toLowerCase() as 'pending' | 'completed' // Map status
+    }));
+};
+
+// Add this function for creating expenses
+export const createExpense = async (expenseData: {
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    // Add other necessary fields
+}): Promise<any> => {
+    const response = await api.post('/api/expenses', expenseData);
     return response.data;
 };
