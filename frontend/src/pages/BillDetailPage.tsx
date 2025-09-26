@@ -1,48 +1,105 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { BottomNav, NavTab } from '../components/BottomNav';
+import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 import { getBillDetails } from '../utils/api';
 import type { BillDetail } from '../types';
 
 const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
-    switch (status) {
-        case 'done':
-            return { backgroundColor: '#52bf52' };
-        case 'pay':
-            return { backgroundColor: '#0d78f2' };
-        case 'check':
-            return { backgroundColor: '#efac4e' };
-    }
-}
+  switch (status) {
+    case 'done':
+      return { backgroundColor: '#52bf52' };
+    case 'pay':
+      return { backgroundColor: '#0d78f2' };
+    case 'check':
+      return { backgroundColor: '#efac4e' };
+  }
+};
+
+type NavState = {
+  bill?: any; // object ที่ backend คืนตอน POST /api/expenses
+  ui?: {
+    title?: string;
+    amount?: number;
+    payerUserId?: number | string;
+    participants?: Array<{ id: number | string; name?: string; email?: string; imageUrl?: string }>;
+    createdAt?: string;
+  };
+};
 
 export const BillDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { billId } = useParams<{ billId: string }>();
-  const [bill, setBill] = useState<BillDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const location = useLocation() as { state?: NavState };
+
+  // แปลง state ที่ส่งมาจากหน้า create → ให้กลายเป็น BillDetail เพื่อโชว์ทันที
+  const initialBill: BillDetail | null = useMemo(() => {
+    const nav = location.state;
+    if (!nav?.bill && !nav?.ui) return null;
+
+    const b = nav.bill ?? {};
+    const ui = nav.ui ?? {};
+    const title = b.title ?? ui.title ?? 'Expense';
+    const amount = Number(b.amount ?? ui.amount ?? 0);
+    const createdAt = (b.createdAt ?? ui.createdAt ?? new Date().toISOString()).toString();
+    const payerUserId = b.payerUserId ?? ui.payerUserId;
+
+    const participants = ui.participants ?? [];
+    const payerName =
+      participants.find(p => String(p.id) === String(payerUserId))?.name ??
+      `User #${payerUserId ?? ''}`;
+
+    const shareCount = participants.length || 1;
+    const perShare = shareCount > 0 ? Math.round((amount / shareCount) * 100) / 100 : 0;
+
+    const members: BillDetail['members'] = participants.map(p => ({
+      avatar: p.imageUrl || 'https://placehold.co/80x80?text=User',
+      name: p.name || (p.email ? p.email.split('@')[0] : `User #${p.id}`),
+      amount: perShare,
+      status: String(p.id) === String(payerUserId) ? 'done' : 'pay',
+    }));
+
+    return {
+      id: b.id ?? billId ?? '',
+      storeName: title,
+      payer: payerName,
+      date: createdAt.slice(0, 10),
+      members,
+    } as BillDetail;
+  }, [location.state, billId]);
+
+  const [bill, setBill] = useState<BillDetail | null>(initialBill);
+  const [loading, setLoading] = useState<boolean>(!initialBill);
   const [error, setError] = useState<string | null>(null);
 
+  // รีเฟรชจาก API ด้วย billId (ถ้ามี) เพื่อให้ข้อมูลจริงอัปเดตทีหลัง
   useEffect(() => {
-    if (billId) {
-      getBillDetails(billId)
-        .then((data) => {
+    if (!billId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await getBillDetails(billId);
+        if (!cancelled) {
           setBill(data);
-          setLoading(false);
-        })
-        .catch((err) => {
-          setError(err.message);
-          setLoading(false);
-        });
-    }
-  }, [billId]);
+          setError(null);
+        }
+      } catch (err: any) {
+        if (!initialBill) setError(err?.message ?? 'Load failed');
+      } finally {
+        if (!initialBill && !cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [billId, initialBill]);
 
   const handlePayClick = (status: 'done' | 'pay' | 'check') => {
-    if (status === 'pay' && bill) {
-        navigate(`/pay/${bill.id}`);
-    }
-  }
+    if (status === 'pay' && bill) navigate(`/pay/${bill.id}`);
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
@@ -59,10 +116,16 @@ export const BillDetailPage: React.FC = () => {
         {bill && (
           <>
             <div className="flex items-center">
-              <p className="text-lg font-semibold" style={{color: '#0c0c0c'}}>ร้าน: {bill.storeName}</p>
-              <p className="text-lg font-semibold ml-8" style={{color: '#0c0c0c'}}>Payer: {bill.payer}</p>
+              <p className="text-lg font-semibold" style={{ color: '#0c0c0c' }}>
+                ร้าน: {bill.storeName}
+              </p>
+              <p className="text-lg font-semibold ml-8" style={{ color: '#0c0c0c' }}>
+                Payer: {bill.payer}
+              </p>
             </div>
-            <p className="text-lg font-semibold mb-4" style={{color: '#0c0c0c'}}>Date: {bill.date}</p>
+            <p className="text-lg font-semibold mb-4" style={{ color: '#0c0c0c' }}>
+              Date: {bill.date}
+            </p>
 
             {bill.members.map((member, idx) => (
               <div
@@ -77,7 +140,7 @@ export const BillDetailPage: React.FC = () => {
                   />
                   <div>
                     <p className="font-semibold">{member.name}</p>
-                    <p className="text-sm" style={{color: '#628fa6'}}>
+                    <p className="text-sm" style={{ color: '#628fa6' }}>
                       Pay : {member.amount} Bath
                     </p>
                   </div>
