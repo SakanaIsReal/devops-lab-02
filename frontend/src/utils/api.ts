@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { User } from '../types';
-
+import { UserUpdateForm } from '../types/index'
 const API_BASE_URL = 'http://localhost:8081';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+    baseURL: API_BASE_URL,
 });
 
 // FIX: Consistent token key
@@ -23,7 +23,7 @@ api.interceptors.request.use(config => {
 // FIX: Correct response handling
 export const loginApi = async (email: string, password: string): Promise<{ user: User; token: string }> => {
     const response = await api.post('/api/auth/login', { email, password });
-    
+
     // Map API response to match your expected structure
     const apiResponse = response.data;
     return {
@@ -32,6 +32,9 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
             id: apiResponse.userId.toString(),
             email: apiResponse.email,
             name: apiResponse.userName,
+            phone: apiResponse.phone,
+            imageUrl: apiResponse.avatarUrl,
+            qrCodeUrl :apiResponse.qrCodeUrl
             // Add other properties as needed
         }
     };
@@ -39,19 +42,24 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
 
 // In your ../utils/api file, update the signUpApi function:
 export const signUpApi = async (
-  userName: string, 
-  email: string, 
-  password: string, 
-  phone?: string
+    userName: string,
+    email: string,
+    password: string,
+    phone?: string
 ): Promise<User> => {
-  const response = await api.post('/api/auth/register', { 
-    userName, 
-    email, 
-    password, 
-    phone: phone || "" // Send empty string if phone is not provided
-  });
-  return response.data;
+    const response = await api.post('/api/auth/register', {
+        userName,
+        email,
+        password,
+        phone: phone || "" // Send empty string if phone is not provided
+    });
+    return response.data;
 };
+export const getUserInformation = async (userId: string | number,): Promise<any> => {
+    const response = await api.get(`/api/users/${userId}`);
+    return response.data;
+};
+
 
 export const getTransactions = async (): Promise<any[]> => {
     const response = await api.get('/transactions');
@@ -92,3 +100,49 @@ export const getPaymentDetails = async (transactionId: string): Promise<any> => 
     const response = await api.get(`/payment-details/${transactionId}`);
     return response.data;
 };
+
+export const editUserInformationAcc = async (
+    userId: string | number,
+    formData: UserUpdateForm
+): Promise<any> => {
+    const hasNewFile = (formData.avatar instanceof File) || (formData.qr instanceof File);
+    if (hasNewFile) {
+        const data = new FormData();
+        const userPayload: any = {};
+        if (formData.userName  !== null) userPayload.userName  = formData.userName ;
+        if (formData.email !== null) userPayload.email = formData.email;
+        if (formData.phone !== null) userPayload.phone = formData.phone;
+
+        data.append(
+            "user",
+            new Blob([JSON.stringify(userPayload)], { type: "application/json" }),
+            "user.json"
+        );
+        if (formData.avatar instanceof File) {
+            data.append("avatar", formData.avatar);
+        }
+        if (formData.qr instanceof File) {
+            data.append("qr", formData.qr);
+        }
+        const response = await api.put(`/api/users/${userId}`, data);
+        return response.data;
+    } else {
+        const updatePayload: any = {};
+
+        // ใส่ข้อมูล Text fields
+        if (formData.userName  !== null) updatePayload.userName  = formData.userName ;
+        if (formData.email !== null) updatePayload.email = formData.email;
+        if (formData.phone !== null) updatePayload.phone = formData.phone;
+
+        if (typeof formData.avatar === 'string' || formData.avatar === null) {
+            updatePayload.avatarUrl = formData.avatar;
+        }
+        if (typeof formData.qr === 'string' || formData.qr === null) {
+            updatePayload.qrCodeUrl = formData.qr;
+        }
+
+        // ส่ง JSON Request
+        const response = await api.put(`/api/users/${userId}`, updatePayload);
+        return response.data;
+    }
+}
