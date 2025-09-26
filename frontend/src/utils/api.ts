@@ -34,7 +34,7 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
             name: apiResponse.userName,
             phone: apiResponse.phone,
             imageUrl: apiResponse.avatarUrl,
-            qrCodeUrl :apiResponse.qrCodeUrl
+            qrCodeUrl: apiResponse.qrCodeUrl
             // Add other properties as needed
         }
     };
@@ -67,7 +67,7 @@ export const getTransactions = async (): Promise<any[]> => {
 };
 
 export const getGroups = async (): Promise<any[]> => {
-    const response = await api.get('/groups');
+    const response = await api.get('/api/groups');
     return response.data;
 };
 
@@ -78,7 +78,7 @@ export const searchUsers = async (query: string): Promise<any[]> => {
 };
 
 export const createGroup = async (groupName: string, participants: any[]): Promise<any> => {
-    const response = await api.post('/groups', { name: groupName, members: participants });
+    const response = await api.post('/api/groups', { name: groupName, members: participants });
     return response.data;
 };
 
@@ -100,7 +100,7 @@ export const getGroupDetails = async (groupId: string): Promise<Group> => {
 
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
     const response = await api.get(`/api/expenses/group/${groupId}`);
-    
+
     // Transform the API response to match your frontend needs
     const expenses = response.data;
     return expenses.map((expense: any) => ({
@@ -111,6 +111,11 @@ export const getGroupTransactions = async (groupId: string): Promise<Transaction
         date: new Date(expense.createdAt).toLocaleDateString(),
         status: expense.status.toLowerCase() as 'pending' | 'completed' // Map status
     }));
+};
+
+export const getGroupMembers = async (groupId: string): Promise<any[]> => {
+    const response = await api.get(`/api/groups/${groupId}/members`);
+    return response.data;
 };
 
 // Add this function for creating expenses
@@ -133,7 +138,7 @@ export const editUserInformationAcc = async (
     if (hasNewFile) {
         const data = new FormData();
         const userPayload: any = {};
-        if (formData.userName  !== null) userPayload.userName  = formData.userName ;
+        if (formData.userName !== null) userPayload.userName = formData.userName;
         if (formData.email !== null) userPayload.email = formData.email;
         if (formData.phone !== null) userPayload.phone = formData.phone;
 
@@ -154,7 +159,7 @@ export const editUserInformationAcc = async (
         const updatePayload: any = {};
 
         // ใส่ข้อมูล Text fields
-        if (formData.userName  !== null) updatePayload.userName  = formData.userName ;
+        if (formData.userName !== null) updatePayload.userName = formData.userName;
         if (formData.email !== null) updatePayload.email = formData.email;
         if (formData.phone !== null) updatePayload.phone = formData.phone;
 
@@ -170,3 +175,74 @@ export const editUserInformationAcc = async (
         return response.data;
     }
 }
+
+// ====================
+// 1. Create Expense (ใช้ axios)
+// ====================
+export const createExpenseApi = async (expenseData: {
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+}): Promise<any> => {
+    const response = await api.post("/api/expenses", expenseData);
+    return response.data;
+};
+
+// ====================
+// 2. Create Expense Item
+// ====================
+export const createExpenseItem = async (
+    expenseId: number,
+    name: string,
+    amount: string
+) => {
+    const formData = new URLSearchParams();
+    formData.append("name", name);
+    formData.append("amount", amount);
+
+    const res = await api.post(
+        `/api/expenses/${expenseId}/items`,
+        formData,
+        {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        }
+    );
+
+    return res.data; // ✅ axios ใช้ data
+};
+
+
+// ====================
+// 3. Create Expense Item Share
+// ====================
+export const createExpenseItemShare = async (
+    expenseId: number,
+    itemId: number,
+    participantUserId: number,
+    shareValue?: string,
+    sharePercent?: string
+) => {
+    const formData = new URLSearchParams();
+    formData.append("participantUserId", participantUserId.toString());
+    if (shareValue !== undefined) {
+        formData.append("shareValue", shareValue);
+    }
+    if (sharePercent !== undefined) {
+        formData.append("sharePercent", sharePercent);
+    }
+
+    const res = await api.post(
+        `/api/expenses/${expenseId}/items/${itemId}/shares`,
+        formData,
+        {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        }
+    );
+    return res.data;
+};
