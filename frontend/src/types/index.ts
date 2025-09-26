@@ -12,6 +12,7 @@ export interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     isLoading: boolean;
+    updateUser: (user: User) => void;
 }
 
 export interface Group {
@@ -102,6 +103,7 @@ export interface BillDetail {
   date: string;
   members: BillMember[];
 }
+
 export interface UserUpdateForm {
     userName : string ;
     email: string ;
