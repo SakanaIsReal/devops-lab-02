@@ -51,7 +51,7 @@ export default function ManualSplitPage() {
             if (groupId) {
                 try {
                     const members = await getGroupMembers(groupId);
-                    const participantPromises = members.map(member => getUserInformation(member.userId));
+                    const participantPromises = members.map(member => getUserInformation(member.id));
                     const participantDetails = await Promise.all(participantPromises);
                     const fetchedParticipants = participantDetails.map(p => ({ id: p.id, name: p.userName }));
                     setParticipants(fetchedParticipants);
