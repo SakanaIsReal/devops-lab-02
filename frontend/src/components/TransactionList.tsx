@@ -45,7 +45,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ groupId }) => {
   }
 
   return (
-    <div className="space-y-4 mt-6">
+    <div className="space-y-4 mt-6 mb-20">
       <h2 className="text-xl font-bold">Transactions</h2>
       <div className="flex space-x-2">
         <button onClick={() => setFilter('all')} className={`px-3 py-1 rounded-full text-sm font-medium ${filter === 'all' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'}`}>All</button>

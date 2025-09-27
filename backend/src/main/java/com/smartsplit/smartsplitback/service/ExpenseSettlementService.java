@@ -17,27 +17,22 @@ public class ExpenseSettlementService {
     private final ExpensePaymentRepository payments;
 
     public ExpenseSettlementService(ExpenseItemShareRepository shares,
-                                    ExpensePaymentRepository payments) {
+            ExpensePaymentRepository payments) {
         this.shares = shares;
         this.payments = payments;
     }
 
     @Transactional(readOnly = true)
     public BigDecimal owedForUser(Long expenseId, Long userId) {
-        // ดึง shares ของ user ใน expense (พร้อม item.amount)
         var list = shares.fetchForExpenseAndUser(expenseId, userId);
         BigDecimal sum = BigDecimal.ZERO;
 
         for (ExpenseItemShare s : list) {
-            BigDecimal itemAmt = (s.getExpenseItem() != null && s.getExpenseItem().getAmount() != null)
-                    ? s.getExpenseItem().getAmount() : BigDecimal.ZERO;
-
-            BigDecimal v = (s.getShareValue() != null) ? s.getShareValue() : BigDecimal.ZERO;
-            BigDecimal pct = (s.getSharePercent() != null) ? s.getSharePercent() : BigDecimal.ZERO;
-
-            // rule: share = value + (percent/100 * item.amount)
-            BigDecimal byPct = itemAmt.multiply(pct).divide(new BigDecimal("100"));
-            sum = sum.add(v).add(byPct);
+            BigDecimal v = s.getShareValue();
+            if (v != null) {
+                sum = sum.add(v);
+            }
+            // ไม่คำนวณเปอร์เซ็นต์แล้ว
         }
         return sum;
     }
@@ -53,8 +48,10 @@ public class ExpenseSettlementService {
         var paid = paidForUser(expenseId, userId);
         boolean settled = paid.compareTo(owed) >= 0;
         BigDecimal remaining = owed.subtract(paid);
-        if (remaining.signum() < 0) remaining = BigDecimal.ZERO;
-        return new com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto(expenseId, userId, owed, paid, settled, remaining);
+        if (remaining.signum() < 0)
+            remaining = BigDecimal.ZERO;
+        return new com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto(expenseId, userId, owed, paid, settled,
+                remaining);
     }
 
     @Transactional(readOnly = true)
