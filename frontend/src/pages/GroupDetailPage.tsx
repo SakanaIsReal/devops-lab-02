@@ -14,7 +14,7 @@ export const GroupDetailPage: React.FC = () => {
   const location = useLocation();
   const [group, setGroup] = useState<Group | null>(location.state?.group || null);
   const [loading, setLoading] = useState(!location.state?.group);
-
+const { id } = useParams<{ id: string }>();
   useEffect(() => {
     if (!group && groupId) {
       const fetchGroupDetails = async () => {
