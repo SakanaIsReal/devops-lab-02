@@ -39,8 +39,10 @@ const { id } = useParams<{ id: string }>();
   };
 
   const handleFabClick = () => {
-   navigate('/equalsplit', { state: { group } });
-
+    console.log("FAB clicked");
+      navigate("/splitmoney", {
+    state: { groupId },
+  });
   };
 
   if (loading) {

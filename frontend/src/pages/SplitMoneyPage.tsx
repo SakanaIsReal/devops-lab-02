@@ -1,13 +1,14 @@
 import React from "react";
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 
 export default function SplitMoneyPage() {
     const navigate = useNavigate();
-
-      const handleBack = () => {
+    const location = useLocation();
+    const groupId = location.state?.groupId;
+    const handleBack = () => {
         navigate(-1);
     };
     return (
@@ -24,7 +25,10 @@ export default function SplitMoneyPage() {
                     <p className="text-gray-700">Select Split Method</p>
                 </div>
                 <div className="flex flex-col mt-4">
-                    <Link to="/equalsplit">
+                    <Link
+                        to="/equalsplit"
+                        state={{ groupId }}
+                    >
                         <div className="flex flex-row p-3 bg-gray-200 rounded-xl mb-3 items-center hover:bg-gray-300 transition">
                             <div className="w-10 h-10 flex items-center justify-center bg-gray-300 rounded-2xl flex-shrink-0">
                                 ➗
@@ -37,7 +41,10 @@ export default function SplitMoneyPage() {
                             </div>
                         </div>
                     </Link>
-                    <Link to="/manualsplit">
+                    <Link
+                        to="/manualsplit"
+                        state={{ groupId }}
+                    >
                         <div className="flex flex-row p-3 bg-gray-200 rounded-xl mb-3 items-center">
                             <div className="w-10 h-10 flex items-center justify-center bg-gray-300 rounded-2xl flex-shrink-0">
                                 💰
