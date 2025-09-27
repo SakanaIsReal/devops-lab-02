@@ -1,4 +1,4 @@
-import { Transaction, User, Group, PaymentDetails } from "../types";
+import { Transaction, User, Group, PaymentDetails, BillDetail, Bill } from "../types";
 
 export const mockLoginApi = (
   email: string,
@@ -24,71 +24,89 @@ export const mockLoginApi = (
   });
 };
 
-export const mockSignUpApi = (
-    firstName: string,
-    lastName: string,
-    email: string,
-    password: string
-    ): Promise<User> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({
-                id: "2",
-                email: email,
-                name: `${firstName} ${lastName}`,
-            });
-        }, 1500);
-    });
-};
+// export const mockSignUpApi = (
+//     firstName: string,
+//     lastName: string,
+//     email: string,
+//     password: string
+//     ): Promise<User> => {
+//     return new Promise((resolve) => {
+//         setTimeout(() => {
+//             resolve({
+//                 id: "2",
+//                 email: email,
+//                 name: `${firstName} ${lastName}`,
+//             });
+//         }, 1500);
+//     });
+// };
 
 export const transactions: Transaction[] = [
     {
       id: 1,
-      type: "owe",
-      name: "Alex",
+      groupId: 1,
+      payerUserId: 2,
       amount: 25.0,
-      description: "Dinner last night",
-      created_date: "2025-09-06T19:00:00Z",
+      type: "EQUAL",
+      title: "Dinner last night",
+      status: "OPEN",
+      createdAt: "2025-09-06T19:00:00Z",
+      name: "Alex",
     },
     {
       id: 2,
-      type: "owed",
-      name: "Mark",
+      groupId: 1,
+      payerUserId: 1,
       amount: 15.0,
-      description: "Concert tickets",
-      created_date: "2025-09-05T12:00:00Z",
+      type: "EQUAL",
+      title: "Concert tickets",
+      status: "OPEN",
+      createdAt: "2025-09-05T12:00:00Z",
+      name: "Mark",
     },
     {
       id: 3,
-      type: "owed",
-      name: "Smolary",
+      groupId: 1,
+      payerUserId: 1,
       amount: 45.0,
-      description: "Hololive Shipping Cost",
-      created_date: "2025-09-04T10:30:00Z",
+      type: "EQUAL",
+      title: "Hololive Shipping Cost",
+      status: "OPEN",
+      createdAt: "2025-09-04T10:30:00Z",
+      name: "Smolary",
     },
     {
         id: 4,
-        type: "owe",
-        name: "John",
+        groupId: 2,
+        payerUserId: 3,
         amount: 10.0,
-        description: "Coffee",
-        created_date: "2025-09-05T09:00:00Z",
+        type: "EQUAL",
+        title: "Coffee",
+        status: "OPEN",
+        createdAt: "2025-09-05T09:00:00Z",
+        name: "John",
     },
     {
         id: 5,
-        type: "owed",
-        name: "Jane",
+        groupId: 2,
+        payerUserId: 1,
         amount: 30.0,
-        description: "Movie tickets",
-        created_date: "2025-08-27T15:00:00Z",
+        type: "EQUAL",
+        title: "Movie tickets",
+        status: "SETTLED",
+        createdAt: "2025-08-27T15:00:00Z",
+        name: "Jane",
     },
     {
         id: 6,
-        type: "owe",
-        name: "Bob",
+        groupId: 2,
+        payerUserId: 4,
         amount: 5.0,
-        description: "Lunch",
-        created_date: "2025-07-01T12:30:00Z",
+        type: "EQUAL",
+        title: "Lunch",
+        status: "OPEN",
+        createdAt: "2025-07-01T12:30:00Z",
+        name: "Bob",
     },
   ];
 
@@ -133,14 +151,35 @@ export const mockGetGroupsApi = (): Promise<Group[]> => {
   });
 };
 
-export const mockTransactionsWithGroupId = [
+const mockBills: Bill[] = [
   {
     id: '1',
     groupId: '1',
     name: 'Groceries',
     payer: 'Alice',
     date: '2025-09-06',
-    status: 'completed' as const,
+    status: 'completed',
+    storeName: 'ส้มตำเจ๊แต๋ว MLC',
+    members: [
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/1.jpg",
+        },
+        {
+          name: "JutichotZaHAHA+",
+          amount: 150,
+          status: "check",
+          avatar: "https://randomuser.me/api/portraits/women/2.jpg",
+        },
+    ],
   },
   {
     id: '2',
@@ -148,7 +187,22 @@ export const mockTransactionsWithGroupId = [
     name: 'Movie Tickets',
     payer: 'Bob',
     date: '2025-09-05',
-    status: 'pending' as const,
+    status: 'pending',
+    storeName: 'Major Cineplex',
+    members: [
+        {
+          name: "Alice",
+          amount: 100,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "Bob",
+          amount: 100,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/2.jpg",
+        },
+    ],
   },
   {
     id: '3',
@@ -156,14 +210,32 @@ export const mockTransactionsWithGroupId = [
     name: 'Restaurant',
     payer: 'Alice',
     date: '2025-09-04',
-    status: 'completed' as const,
+    status: 'completed',
+    storeName: 'KFC',
+    members: [
+        {
+          name: "Alice",
+          amount: 200,
+          status: "done",
+          avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+        },
+        {
+          name: "Charlie",
+          amount: 200,
+          status: "pay",
+          avatar: "https://randomuser.me/api/portraits/men/3.jpg",
+        },
+    ],
   },
 ];
 
 export const mockGetTransactionsApi = (groupId: string): Promise<any[]> => {
   return new Promise((resolve) => {
     setTimeout(() => {
-      resolve(mockTransactionsWithGroupId.filter(t => t.groupId === groupId));
+      const transactions = mockBills
+        .filter(bill => bill.groupId === groupId)
+        .map(({ id, name, payer, date, status }) => ({ id, name, payer, date, status }));
+      resolve(transactions);
     }, 100);
   });
 };
@@ -176,28 +248,28 @@ export const mockGetGroupDetailsApi = (groupId: string): Promise<Group | undefin
   });
 };
 
-const mockUsers: User[] = [
-  { id: '1', name: 'Alice', email: 'alice@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/1.jpg', phone: '123-456-7890' },
-  { id: '2', name: 'Bob', email: 'bob@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/2.jpg', phone: '234-567-8901' },
-  { id: '3', name: 'Charlie', email: 'charlie@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/3.jpg', phone: '345-678-9012' },
-  { id: '4', name: 'David', email: 'david@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/4.jpg', phone: '456-789-0123' },
-  { id: '5', name: 'Eve', email: 'eve@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/5.jpg', phone: '567-890-1234' },
-];
+// const mockUsers: User[] = [
+//   { id: '1', name: 'Alice', email: 'alice@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/1.jpg', phone: '123-456-7890' },
+//   { id: '2', name: 'Bob', email: 'bob@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/2.jpg', phone: '234-567-8901' },
+//   { id: '3', name: 'Charlie', email: 'charlie@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/3.jpg', phone: '345-678-9012' },
+//   { id: '4', name: 'David', email: 'david@example.com', imageUrl: 'https://randomuser.me/api/portraits/men/4.jpg', phone: '456-789-0123' },
+//   { id: '5', name: 'Eve', email: 'eve@example.com', imageUrl: 'https://randomuser.me/api/portraits/women/5.jpg', phone: '567-890-1234' },
+// ];
 
-export const mockSearchUsersApi = (username: string): Promise<User[]> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (username === '') {
-        resolve([]);
-      } else {
-        const results = mockUsers.filter(user =>
-          user.name.toLowerCase().includes(username.toLowerCase())
-        );
-        resolve(results);
-      }
-    }, 300);
-  });
-};
+// export const mockSearchUsersApi = (username: string): Promise<User[]> => {
+//   return new Promise((resolve) => {
+//     setTimeout(() => {
+//       if (username === '') {
+//         resolve([]);
+//       } else {
+//         const results = mockUsers.filter(user =>
+//           user.name.toLowerCase().includes(username.toLowerCase())
+//         );
+//         resolve(results);
+//       }
+//     }, 300);
+//   });
+// };
 
 export const mockCreateGroupApi = (groupName: string, participants: User[]): Promise<Group> => {
   return new Promise((resolve) => {
@@ -235,5 +307,19 @@ export const mockGetPaymentDetailsApi = (transactionId: string): Promise<Payment
         reject(new Error('Payment details not found'));
       }
     }, 500);
+  });
+};
+
+export const mockGetBillDetailApi = (billId: string): Promise<BillDetail> => {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      const bill = mockBills.find(b => b.id === billId);
+      if (bill) {
+        const { id, storeName, payer, date, members } = bill;
+        resolve({ id, storeName, payer, date, members });
+      } else {
+        reject(new Error("Bill not found"));
+      }
+    }, 300);
   });
 };

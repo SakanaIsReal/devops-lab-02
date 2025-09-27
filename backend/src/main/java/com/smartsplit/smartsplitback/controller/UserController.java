@@ -1,4 +1,4 @@
-// src/main/java/com/smartsplit/smartsplitback/controller/UserController.java
+
 package com.smartsplit.smartsplitback.controller;
 
 import com.smartsplit.smartsplitback.model.User;
@@ -15,8 +15,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.smartsplit.smartsplitback.model.Role;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
+import com.smartsplit.smartsplitback.model.dto.UserCreateRequest;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -57,6 +60,7 @@ public class UserController {
     @GetMapping("/me")
     public UserDto me() {
         Long myId = perm.currentUserId(); // ดึงจาก token
+        if (myId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         var u = svc.get(myId);
         if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
         return toDto(u);
@@ -78,8 +82,8 @@ public class UserController {
             @Parameter(
                     description = "User JSON payload",
                     content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = UserDto.class)))
-            @RequestPart("user") UserDto in,
+                            schema = @Schema(implementation = UserCreateRequest.class)))
+            @RequestPart("user") UserCreateRequest in,
 
             @Parameter(description = "Avatar image",
                     content = @Content(schema = @Schema(type = "string", format = "binary")))
@@ -87,22 +91,36 @@ public class UserController {
 
             @Parameter(description = "QR image",
                     content = @Content(schema = @Schema(type = "string", format = "binary")))
-            @RequestPart(value = "qr", required = false) MultipartFile qr,
+            @RequestPart(value = "qrCode", required = false) MultipartFile qrCode,
 
             HttpServletRequest req) {
+
+        // ต้องมี password ไม่งั้นตอบ 400 (ป้องกัน DB not-null ชน)
+        if (in.password() == null || in.password().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "password is required");
+        }
 
         var u = new User();
         u.setEmail(in.email());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
+        // NOTE: ใช้ {noop} สำหรับทดสอบ ถ้ามี PasswordEncoder ให้เปลี่ยนเป็น encoder.encode(...)
+        u.setPasswordHash("{noop}" + in.password());
+        if (in.role() != null) {
+            u.setRole(Role.fromCode(in.role()));
+        } else {
+            u.setRole(Role.USER);
+        }
+
+        // เซฟก่อนเพื่อให้ได้ ID ไปตั้งชื่อไฟล์
         u = svc.create(u);
 
         if (avatar != null && !avatar.isEmpty()) {
             String url = storage.save(avatar, "avatars", "user-" + u.getId(), req);
             u.setAvatarUrl(url);
         }
-        if (qr != null && !qr.isEmpty()) {
-            String url = storage.save(qr, "qrcodes", "qr-" + u.getId(), req);
+        if (qrCode != null && !qrCode.isEmpty()) {
+            String url = storage.save(qrCode, "qrcodes", "qr-" + u.getId(), req);
             u.setQrCodeUrl(url);
         }
 
@@ -110,18 +128,33 @@ public class UserController {
         return toDto(u);
     }
 
+
     @PreAuthorize("@perm.isAdmin()")
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public UserDto createJson(@RequestBody UserDto in) {
+    public UserDto createJson(@RequestBody UserCreateRequest in) {
+        if (in.password() == null || in.password().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "password is required");
+        }
+
         var u = new User();
         u.setEmail(in.email());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
         u.setAvatarUrl(in.avatarUrl());
         u.setQrCodeUrl(in.qrCodeUrl());
+        // TODO: เปลี่ยนเป็น passwordEncoder.encode(in.password()) ถ้ามี
+        u.setPasswordHash("{noop}" + in.password());
+
+        if (in.role() != null) {
+            u.setRole(Role.fromCode(in.role()));
+        } else {
+            u.setRole(Role.USER);
+        }
+
         return toDto(svc.create(u));
     }
+
 
     @PreAuthorize("@perm.isAdmin() || @perm.isSelf(#id)")
     @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)

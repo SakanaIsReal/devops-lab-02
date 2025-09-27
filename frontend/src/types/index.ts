@@ -2,8 +2,9 @@ export interface User {
     id: string;
     email: string;
     name: string;
-    imageUrl?: string;
-    phone?: string;
+    phone: string;
+    imageUrl: string;
+    qrCodeUrl : string;
 }
 
 export interface AuthContextType {
@@ -11,15 +12,7 @@ export interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     logout: () => void;
     isLoading: boolean;
-}
-
-export interface Transaction {
-    id: number;
-    type: "owe" | "owed";
-    name: string;
-    amount: number;
-    description: string;
-    created_date: string;
+    updateUser: (user: User) => void;
 }
 
 export interface Group {
@@ -34,4 +27,170 @@ export interface PaymentDetails {
   payerName: string;
   amountToPay: number;
   qrCodeUrl: string;
+}
+
+export interface BillMember {
+  name: string;
+  amount: number;
+  status: 'done' | 'pay' | 'check';
+  avatar: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}
+
+export interface Bill extends BillDetail {
+  groupId: string;
+  name: string;
+  status: 'pending' | 'completed';
+}
+
+export interface UserUpdateForm {
+    userName : string ;
+    email: string ;
+    phone: string ;
+    avatar: File | string ;
+    qr: File | string ;
+}
+
+// Update your types file (../types.ts)
+
+export interface Expense {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  participantCount: number;
+  imageUrl: string;
+  ownerUserId?: number;
+  coverImageUrl?: string;
+  memberCount?: number;
+}
+
+export interface Transaction {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+    // For compatibility with existing components
+    name?: string;
+    payer?: string;
+    date?: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}
+
+export interface UserUpdateForm {
+    userName : string ;
+    email: string ;
+    phone: string ;
+    avatar: File | string ;
+    qr: File | string ;
+}
+
+// Update your types file (../types.ts)
+
+export interface Expense {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  participantCount: number;
+  imageUrl: string;
+  ownerUserId?: number;
+  coverImageUrl?: string;
+  memberCount?: number;
+}
+
+export interface Transaction {
+    id: number;
+    groupId: number;
+    payerUserId: number;
+    amount: number;
+    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
+    title: string;
+    status: "SETTLED" | "OPEN" | "CANCELED";
+    createdAt: string;
+    // For compatibility with existing components
+    name?: string;
+    payer?: string;
+    date?: string;
+}
+
+export interface BillDetail {
+  id: string;
+  storeName: string;
+  payer: string;
+  date: string;
+  members: BillMember[];
+}
+
+// Add to your types file
+export interface Settlement {
+  expenseId: number;
+  userId: number;
+  owedAmount: number;
+  paidAmount: number;
+  settled: boolean;
+  remaining: number;
+}
+
+export interface PaymentDetails {
+  transactionId: string;
+  payerName: string;
+  amountToPay: number;
+  qrCodeUrl: string;
+  // Add settlement-specific fields
+  expenseId?: number;
+  userId?: number;
+  owedAmount?: number;
+  paidAmount?: number;
+  settled?: boolean;
+  remaining?: number;
+}
+
+// Add to your types file
+export interface PaymentResponse {
+    id: number;
+    expenseId: number;
+    fromUserId: number;
+    result: number;
+    status: string;
+    curricular: string; // This seems to be createdAt (typo in API)
+    verifiable: string; // This seems to be updatedAt (typo in API)
+    recelptlist: number; // Typo in API
+    recelptfiled: string; // Typo in API
 }

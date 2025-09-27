@@ -1,4 +1,3 @@
-// src/main/java/com/smartsplit/smartsplitback/controller/GroupController.java
 package com.smartsplit.smartsplitback.controller;
 
 import com.smartsplit.smartsplitback.model.Group;
@@ -6,6 +5,7 @@ import com.smartsplit.smartsplitback.model.GroupMember;
 import com.smartsplit.smartsplitback.model.GroupMemberId;
 import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.model.dto.GroupDto;
+import com.smartsplit.smartsplitback.security.Perms;
 import com.smartsplit.smartsplitback.security.SecurityFacade;
 import com.smartsplit.smartsplitback.service.FileStorageService;
 import com.smartsplit.smartsplitback.service.GroupMemberService;
@@ -29,23 +29,35 @@ public class GroupController {
     private final GroupMemberService members;
     private final SecurityFacade sec;
     private final FileStorageService storage;
+    private final Perms perm;
 
     public GroupController(GroupService groups,
                            UserService users,
                            GroupMemberService members,
                            SecurityFacade sec,
-                           FileStorageService storage) {
+                           FileStorageService storage,
+                           Perms perm) {
         this.groups = groups;
         this.users = users;
         this.members = members;
         this.sec = sec;
         this.storage = storage;
+        this.perm = perm;
     }
-    @PreAuthorize("@perm.isAdmin()")
+
+    @PreAuthorize("#ownerUserId == null ? isAuthenticated() : @perm.isAdmin()")
     @GetMapping
-    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId){
-        var list = ownerUserId==null ? groups.list() : groups.listByOwner(ownerUserId);
-        return list.stream().map(this::toDto).toList();
+    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId) {
+        if (ownerUserId == null) {
+            Long me = sec.currentUserId();
+            if (me == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+            }
+            return groups.listByOwner(me).stream().map(this::toDto).toList();
+        } else {
+            // ผ่าน @PreAuthorize มาได้แปลว่าเป็นแอดมินแล้ว
+            return groups.listByOwner(ownerUserId).stream().map(this::toDto).toList();
+        }
     }
 
     @PreAuthorize("isAuthenticated()")
@@ -54,31 +66,45 @@ public class GroupController {
         Long me = sec.currentUserId();
         if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         var list = groups.listByMember(me);
-        return list.stream().map(this::toDto).toList(); // <-- ใช้ this::toDto
+        return list.stream().map(this::toDto).toList();
     }
 
-    @PreAuthorize("@perm.isGroupMember(#id)")
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
     public GroupDto get(@PathVariable Long id){
         var g = groups.get(id);
-        if(g==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Group not found");
-        return toDto(g); // <-- memberCount จะถูกคำนวณ
+        // ให้ 404 ก่อน (ถ้าไม่พบ)
+        if (g == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        // แล้วค่อยเช็คสิทธิ์สมาชิก/แอดมิน → 403 ถ้าไม่ผ่าน
+        if (!perm.isGroupMember(id) && !perm.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+        }
+        return toDto(g);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public GroupDto create(@RequestPart("group") GroupDto in,
                            @RequestPart(value = "cover", required = false) MultipartFile cover,
                            HttpServletRequest req){
-        if(in.ownerUserId()==null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"ownerUserId is required");
+        Long me = sec.currentUserId();
+        if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+        if (in.ownerUserId()==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"ownerUserId is required");
+
+        if (!perm.isAdmin() && !me.equals(in.ownerUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+        }
+
         User owner = users.get(in.ownerUserId());
         if(owner==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Owner user not found");
 
         Group g = new Group();
         g.setOwner(owner);
         g.setName(in.name());
-        g = groups.save(g); // ต้องได้ id ก่อนเพื่อใช้ตั้งชื่อไฟล์
+        g = groups.save(g);
 
         if (cover != null && !cover.isEmpty()) {
             String url = storage.save(cover, "group-covers", "group-" + g.getId(), req);
@@ -86,7 +112,6 @@ public class GroupController {
             g = groups.save(g);
         }
 
-        // ทำให้ owner เป็นสมาชิกกลุ่มด้วย หากยังไม่มี
         if (!members.exists(g.getId(), owner.getId())) {
             GroupMember gm = new GroupMember();
             gm.setGroup(g);
@@ -97,11 +122,18 @@ public class GroupController {
         return toDto(g);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public GroupDto createJson(@RequestBody GroupDto in){
-        if(in.ownerUserId()==null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"ownerUserId is required");
+        Long me = sec.currentUserId();
+        if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+        if (in.ownerUserId()==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"ownerUserId is required");
+
+        if (!perm.isAdmin() && !me.equals(in.ownerUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+        }
+
         User owner = users.get(in.ownerUserId());
         if(owner==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Owner user not found");
 
@@ -131,7 +163,6 @@ public class GroupController {
             var owner = users.get(in.ownerUserId());
             if(owner==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Owner user not found");
             g.setOwner(owner);
-            // ทำให้ owner ใหม่เป็นสมาชิกด้วย หากยังไม่มี
             if (!members.exists(g.getId(), owner.getId())) {
                 GroupMember gm = new GroupMember();
                 gm.setGroup(g);
@@ -177,18 +208,27 @@ public class GroupController {
         return toDto(groups.save(g));
     }
 
-    @PreAuthorize("@perm.canManageGroup(#id)")
-    @DeleteMapping("/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id){
+    @PreAuthorize("isAuthenticated()")
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
         var g = groups.get(id);
-        if(g==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Group not found");
+        if (g == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
 
-        storage.deleteByUrl(g.getCoverImageUrl());
+        if (!perm.canManageGroup(id)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+        }
+
+        if (g.getCoverImageUrl() != null && !g.getCoverImageUrl().isBlank()) {
+            storage.deleteByUrl(g.getCoverImageUrl());
+        }
 
         groups.delete(id);
     }
 
-    // เปลี่ยนเป็น non-static เพื่อคำนวณ memberCount จาก service
+
     private GroupDto toDto(Group g){
         long memberCount = members.countMembers(g.getId());
         return new GroupDto(

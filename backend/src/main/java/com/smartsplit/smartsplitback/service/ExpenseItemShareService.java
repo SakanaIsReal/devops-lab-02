@@ -27,18 +27,16 @@ public class ExpenseItemShareService {
     private final ExpenseRepository expenses;
 
     public ExpenseItemShareService(ExpenseItemShareRepository shares,
-                                   ExpenseItemRepository items,
-                                   UserRepository users,
-                                   GroupMemberRepository members,
-                                   ExpenseRepository expenses) {
+            ExpenseItemRepository items,
+            UserRepository users,
+            GroupMemberRepository members,
+            ExpenseRepository expenses) {
         this.shares = shares;
         this.items = items;
         this.users = users;
         this.members = members;
         this.expenses = expenses;
     }
-
-    /* ─────────────── READ (scoped) ─────────────── */
 
     @Transactional(readOnly = true)
     public List<ExpenseItemShare> listByItemInExpense(Long expenseId, Long itemId) {
@@ -51,15 +49,12 @@ public class ExpenseItemShareService {
         return shares.findByExpenseItem_Expense_Id(expenseId);
     }
 
-    /* ─────────────── CREATE (scoped) ─────────────── */
-
-    /** เพิ่ม share: ถ้าส่ง percent มา → คำนวณค่าเป็น share_value (ปัด 2 ตำแหน่ง HALF_UP) */
     @Transactional
     public ExpenseItemShare addShareInExpense(Long expenseId,
-                                              Long itemId,
-                                              Long participantUserId,
-                                              BigDecimal shareValue,
-                                              BigDecimal sharePercent) {
+            Long itemId,
+            Long participantUserId,
+            BigDecimal shareValue,
+            BigDecimal sharePercent) {
         // ยืนยัน item อยู่ใต้ expense
         ExpenseItem item = items.findByIdAndExpense_Id(itemId, expenseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found in this expense"));
@@ -77,48 +72,50 @@ public class ExpenseItemShareService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Participant is not a member of this group");
         }
 
-        // คำนวณ value จาก percent ถ้ามี (priority)
-        BigDecimal finalValue = (sharePercent != null)
-                ? percentToValue(item.getAmount(), sharePercent)
-                : scaleMoney(shareValue);
+        // ✅ คำนวณ value
+        BigDecimal finalValue;
+        if (shareValue != null) {
+            // ถ้ามี shareValue จาก frontend ใช้ค่านี้โดยตรง
+            finalValue = scaleMoney(shareValue);
+        } else if (sharePercent != null) {
+            finalValue = percentToValue(item.getAmount(), sharePercent);
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Either shareValue or sharePercent is required");
+        }
 
         ExpenseItemShare s = new ExpenseItemShare();
         s.setExpenseItem(item);
         s.setParticipant(user);
-        s.setShareValue(finalValue);
-        s.setSharePercent(sharePercent); // เก็บไว้เป็นข้อมูลอ้างอิงได้
+        s.setShareValue(finalValue); // บันทึกค่าที่คำนวณได้
+        s.setSharePercent(sharePercent); // เก็บ percent เฉย ๆ
 
         return shares.save(s);
     }
 
-    /* ─────────────── UPDATE (scoped) ─────────────── */
-
-    /** อัปเดต share: ถ้าส่ง percent มา → คำนวณทับ share_value (ปัด 2 ตำแหน่ง HALF_UP) */
     @Transactional
     public ExpenseItemShare updateShareInExpense(Long expenseId,
-                                                 Long itemId,
-                                                 Long shareId,
-                                                 BigDecimal shareValue,
-                                                 BigDecimal sharePercent) {
+            Long itemId,
+            Long shareId,
+            BigDecimal shareValue,
+            BigDecimal sharePercent) {
         ExpenseItemShare s = shares
                 .findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Share not found in this expense/item"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Share not found in this expense/item"));
 
         // ถ้าส่ง percent มา → คำนวณจาก item.amount แล้วลง share_value
-        if (sharePercent != null) {
-            BigDecimal computed = percentToValue(s.getExpenseItem() != null ? s.getExpenseItem().getAmount() : null, sharePercent);
-            s.setShareValue(computed);
-            s.setSharePercent(sharePercent);
-        } else if (shareValue != null) {
-            // ถ้าไม่ส่ง percent แต่ส่ง value → scale ให้เรียบร้อย
-            s.setShareValue(scaleMoney(shareValue));
-        }
-        // ถ้าไม่ส่งอะไรมาเลย → ไม่เปลี่ยนค่า
-
-        return shares.save(s);
+    if (shareValue != null) {
+        // ✅ ใช้ค่า shareValue จาก frontend เท่านั้น
+        s.setShareValue(scaleMoney(shareValue));
     }
 
-    /* ─────────────── DELETE (scoped) ─────────────── */
+    if (sharePercent != null) {
+        // ✅ เก็บ percent เฉย ๆ เพื่ออ้างอิง
+        s.setSharePercent(sharePercent);
+    }
+
+    return shares.save(s);
+    }
 
     @Transactional
     public void deleteShareInExpense(Long expenseId, Long itemId, Long shareId) {
@@ -129,8 +126,6 @@ public class ExpenseItemShareService {
         shares.deleteById(shareId);
     }
 
-    /* ─────────────── UTIL ─────────────── */
-
     private void assertItemInExpenseOr404(Long expenseId, Long itemId) {
         boolean exists = items.existsByIdAndExpense_Id(itemId, expenseId);
         if (!exists) {
@@ -138,23 +133,18 @@ public class ExpenseItemShareService {
         }
     }
 
-    /** ปัดเป็นจำนวนเงิน 2 ตำแหน่ง (HALF_UP) */
     private BigDecimal scaleMoney(BigDecimal v) {
-        if (v == null) return null;
+        if (v == null)
+            return null;
         return v.setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** แปลงเปอร์เซ็นต์ → มูลค่า จากยอด item.amount (ปัด 2 ตำแหน่ง HALF_UP) */
     private BigDecimal percentToValue(BigDecimal itemAmount, BigDecimal percent) {
         BigDecimal base = (itemAmount != null) ? itemAmount : BigDecimal.ZERO;
-        BigDecimal pct  = (percent != null) ? percent : BigDecimal.ZERO;
-        // base * pct / 100  (scale 2, HALF_UP)
+        BigDecimal pct = (percent != null) ? percent : BigDecimal.ZERO;
+        // base * pct / 100 (scale 2, HALF_UP)
         return base.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
     }
-
-    /* ─────────────── Legacy (ไม่ผูก scope) ───────────────
-       คงพฤติกรรม “percent มีสิทธิ์เหนือกว่า” เช่นเดียวกัน
-    ---------------------------------------------------------------- */
 
     @Deprecated
     @Transactional(readOnly = true)
@@ -165,7 +155,7 @@ public class ExpenseItemShareService {
     @Deprecated
     @Transactional
     public ExpenseItemShare addShare(Long expenseItemId, Long participantUserId,
-                                     BigDecimal shareValue, BigDecimal sharePercent) {
+            BigDecimal shareValue, BigDecimal sharePercent) {
         ExpenseItem item = items.findById(expenseItemId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense item not found"));
         User user = users.findById(participantUserId)
@@ -190,7 +180,8 @@ public class ExpenseItemShareService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Share not found"));
 
         if (sharePercent != null) {
-            BigDecimal computed = percentToValue(s.getExpenseItem() != null ? s.getExpenseItem().getAmount() : null, sharePercent);
+            BigDecimal computed = percentToValue(s.getExpenseItem() != null ? s.getExpenseItem().getAmount() : null,
+                    sharePercent);
             s.setShareValue(computed);
             s.setSharePercent(sharePercent);
         } else if (shareValue != null) {
@@ -199,4 +190,11 @@ public class ExpenseItemShareService {
         return shares.save(s);
     }
 
+    @Transactional(readOnly = true)
+    public List<ExpenseItemShare> listByExpenseAndParticipant(Long expenseId, Long userId) {
+        if (expenseId == null || userId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "expenseId/userId is required");
+        }
+        return shares.findByExpenseItem_Expense_IdAndParticipant_Id(expenseId, userId);
+    }
 }

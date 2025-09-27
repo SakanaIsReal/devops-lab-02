@@ -2,10 +2,10 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import CircleBackButton from "../components/CircleBackButton";
 import Navbar from "../components/Navbar";
-import { BottomNav, NavTab } from "../components/BottomNav";
+import { BottomNav } from "../components/BottomNav";
 import TransactionList from "../components/TransactionList";
 import FAB from "../components/FAB";
-import { mockGetGroupDetailsApi } from "../utils/mockApi";
+import { getGroupDetails } from "../utils/api";
 import { Group } from "../types";
 
 export const GroupDetailPage: React.FC = () => {
@@ -14,13 +14,12 @@ export const GroupDetailPage: React.FC = () => {
   const location = useLocation();
   const [group, setGroup] = useState<Group | null>(location.state?.group || null);
   const [loading, setLoading] = useState(!location.state?.group);
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
-
+const { id } = useParams<{ id: string }>();
   useEffect(() => {
     if (!group && groupId) {
       const fetchGroupDetails = async () => {
         try {
-          const fetchedGroup = await mockGetGroupDetailsApi(groupId);
+          const fetchedGroup = await getGroupDetails(groupId);
           if (fetchedGroup) {
             setGroup(fetchedGroup);
           }
@@ -41,7 +40,9 @@ export const GroupDetailPage: React.FC = () => {
 
   const handleFabClick = () => {
     console.log("FAB clicked");
-    // Add your create logic here
+      navigate("/splitmoney", {
+    state: { groupId },
+  });
   };
 
   if (loading) {
@@ -63,19 +64,25 @@ export const GroupDetailPage: React.FC = () => {
         />
 
         <h1 className="text-2xl font-bold text-left my-4">Group Detail</h1>
-        {group && (
-          <div className="flex items-center space-x-4">
-            <img src={group.imageUrl} alt={group.name} className="w-24 h-24 rounded-full flex-shrink-0" />
-            <div className="flex flex-col">
-              <h2 className="text-xl font-semibold">{group.name}</h2>
-              <p className="text-gray-600">Participants: {group.participantCount}</p>
-            </div>
-          </div>
-        )}
+{group && (
+  <div className="flex items-center space-x-4">
+    <img 
+      src={group.imageUrl || group.coverImageUrl} 
+      alt={group.name} 
+      className="w-24 h-24 rounded-full flex-shrink-0 object-cover" 
+    />
+    <div className="flex flex-col">
+      <h2 className="text-xl font-semibold">{group.name}</h2>
+      <p className="text-gray-600">
+        Participants: {group.participantCount || group.memberCount || 0}
+      </p>
+    </div>
+  </div>
+)}
         {groupId && <TransactionList groupId={groupId} />}
       </div>
       <FAB onClick={handleFabClick} />
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={undefined} />
     </div>
   );
 };

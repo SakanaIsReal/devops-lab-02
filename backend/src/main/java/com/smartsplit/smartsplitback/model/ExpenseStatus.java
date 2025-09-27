@@ -1,3 +1,3 @@
 package com.smartsplit.smartsplitback.model;
 
-public enum ExpenseStatus { OPEN, SETTLED, CANCELED }
+public enum ExpenseStatus { SETTLED, OPEN,  CANCELED }
