@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Group } from '../types';
-import { getGroups,getGroupMembers } from '../utils/api';
+import { getGroups, getGroupMembers } from '../utils/api';
 import FAB from './FAB';
 
 const GroupList: React.FC = () => {
@@ -27,22 +27,22 @@ const GroupList: React.FC = () => {
   const handleFabClick = () => {
     navigate('/creategroup');
   };
-const [busyId, setBusyId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-const handleEdit = (g: any) => async (e?: React.MouseEvent) => {
-  e?.preventDefault();
-  e?.stopPropagation();
-  setBusyId(Number(g.id));
-  try {
-    const participants = await getGroupMembers(g.id);
-    navigate(`/group/${g.id}/edit`, { state: { group: g, participants } });
-  } catch (err) {
-    console.error(err);
-    navigate(`/group/${g.id}/edit`, { state: { group: g } });
-  } finally {
-    setBusyId(null);
-  }
-};
+  const handleEdit = (g: any) => async (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    setBusyId(Number(g.id));
+    try {
+      const participants = await getGroupMembers(g.id);
+      navigate(`/group/${g.id}/edit`, { state: { group: g, participants } });
+    } catch (err) {
+      console.error(err);
+      navigate(`/group/${g.id}/edit`, { state: { group: g } });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -59,19 +59,20 @@ const handleEdit = (g: any) => async (e?: React.MouseEvent) => {
         <div className="space-y-4">
           {groups.map((group) => (
             <Link to={`/group/${group.id}`} key={group.id} className="bg-white rounded-lg shadow-sm p-4 flex items-center">
-              <img src={group.imageUrl} alt={group.name} className="w-28 h-28 rounded-md object-cover" />
+              <img src={group.imageUrl || group.coverImageUrl}
+                alt={group.name} className="w-28 h-28 rounded-md object-cover" />
               <div className="ml-4 flex justify-between flex-col">
                 <div>
-                    <h2 className="text-lg font-bold text-gray-900">{group.name}</h2>
-                    <p className="text-gray-600">{group.participantCount} participants</p>
+                  <h2 className="text-lg font-bold text-gray-900">{group.name}</h2>
+                  <p className="text-gray-600">Paticipant : {group.memberCount}</p>
                 </div>
                 <div className="mt-4 flex space-x-2">
-                  <button  className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium">
+                  <button className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-medium">
                     View
                   </button>
-                
-                <button onClick={handleEdit(group)} disabled={busyId === Number(group.id)}
-                    >Edit</button>
+
+                  <button className="px-4 py-2 bg-yellow-500 text-white rounded-md text-sm font-medium" onClick={handleEdit(group)} disabled={busyId === Number(group.id)}
+                  >Edit</button>
 
                 </div>
               </div>
