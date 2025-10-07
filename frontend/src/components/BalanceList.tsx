@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Balance } from '../types';
 import { getBalances } from '../utils/api';
+import { useNavigate } from 'react-router-dom';
 
 export default function BalanceList() {
   const [balances, setBalances] = useState<Balance[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchBalances = async () => {
@@ -37,6 +39,14 @@ export default function BalanceList() {
               <p className={`text-lg font-bold ${balance.direction === 'OWES_YOU' ? 'text-green-500' : 'text-red-500'}`}>
                 ${balance.remaining.toFixed(2)}
               </p>
+              {balance.direction === 'YOU_OWE' && (
+                <button
+                  onClick={() => navigate(`/pay/${balance.expenseId}/${balance.counterpartyUserId}`)}
+                  className="mt-2 px-6 py-2 rounded-full text-sm font-medium bg-gray-900 text-white"
+                >
+                  Pay
+                </button>
+              )}
             </div>
           </div>
         ))}
