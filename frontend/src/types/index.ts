@@ -194,3 +194,15 @@ export interface PaymentResponse {
     recelptlist: number; // Typo in API
     recelptfiled: string; // Typo in API
 }
+
+export interface Balance {
+  direction: "OWES_YOU" | "YOU_OWE";
+  counterpartyUserId: number;
+  counterpartyUserName: string;
+  counterpartyAvatarUrl: string | null;
+  groupId: number;
+  groupName: string;
+  expenseId: number;
+  expenseTitle: string;
+  remaining: number;
+}
