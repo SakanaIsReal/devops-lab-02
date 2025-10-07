@@ -8,21 +8,24 @@ import type { BillDetail } from '../types';
 
 const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
   switch (status) {
-    case 'done':
-      return { backgroundColor: '#52bf52' };
-    case 'pay':
-      return { backgroundColor: '#0d78f2' };
-    case 'check':
-      return { backgroundColor: '#efac4e' };
+    case 'done':  return { backgroundColor: '#52bf52' };
+    case 'pay':   return { backgroundColor: '#0d78f2' };
+    case 'check': return { backgroundColor: '#efac4e' };
   }
 };
 
+// ---------- helper types ----------
+type BillMember = BillDetail['members'][number];
+
 type NavState = {
-  bill?: any; // object ที่ backend คืนตอน POST /api/expenses
+  bill?: any; // response จาก POST /api/expenses
   ui?: {
     title?: string;
     amount?: number;
     payerUserId?: number | string;
+    // manual split ส่งยอดต่อคนมา
+    members?: Array<{ id: number | string; name?: string; amount: number; imageUrl?: string; email?: string }>;
+    // equal split เดิม ส่งรายชื่ออย่างเดียว
     participants?: Array<{ id: number | string; name?: string; email?: string; imageUrl?: string }>;
     createdAt?: string;
   };
@@ -33,37 +36,63 @@ export const BillDetailPage: React.FC = () => {
   const { billId } = useParams<{ billId: string }>();
   const location = useLocation() as { state?: NavState };
 
-  // แปลง state ที่ส่งมาจากหน้า create → ให้กลายเป็น BillDetail เพื่อโชว์ทันที
+  // สร้างบิลตั้งต้นจาก state ที่ส่งมาหน้า previous (แสดงผลได้ทันที)
   const initialBill: BillDetail | null = useMemo(() => {
     const nav = location.state;
     if (!nav?.bill && !nav?.ui) return null;
 
-    const b = nav.bill ?? {};
-    const ui = nav.ui ?? {};
-    const title = b.title ?? ui.title ?? 'Expense';
-    const amount = Number(b.amount ?? ui.amount ?? 0);
-    const createdAt = (b.createdAt ?? ui.createdAt ?? new Date().toISOString()).toString();
-    const payerUserId = b.payerUserId ?? ui.payerUserId;
+    const b  = nav.bill ?? {};
+    const ui = nav.ui  ?? {};
 
-    const participants = ui.participants ?? [];
-    const payerName =
-      participants.find(p => String(p.id) === String(payerUserId))?.name ??
-      `User #${payerUserId ?? ''}`;
+    const title     = b.title ?? ui.title ?? 'Expense';
+    const amount    = Number(b.amount ?? ui.amount ?? 0);
+    const createdAt = String(b.createdAt ?? ui.createdAt ?? new Date().toISOString());
+    const payerId   = b.payerUserId ?? ui.payerUserId;
 
-    const shareCount = participants.length || 1;
-    const perShare = shareCount > 0 ? Math.round((amount / shareCount) * 100) / 100 : 0;
+    const uiMembers      = ui.members;
+    const uiParticipants = ui.participants;
 
-    const members: BillDetail['members'] = participants.map(p => ({
-      avatar: p.imageUrl || 'https://placehold.co/80x80?text=User',
-      name: p.name || (p.email ? p.email.split('@')[0] : `User #${p.id}`),
-      amount: perShare,
-      status: String(p.id) === String(payerUserId) ? 'done' : 'pay',
-    }));
+    // helper หา display name จาก id
+    const findNameById = (id?: number | string) => {
+      if (id == null) return undefined;
+      const hitM = uiMembers?.find(m => String(m.id) === String(id));
+      if (hitM) return hitM.name || (hitM.email ? hitM.email.split('@')[0] : `User #${hitM.id}`);
+      const hitP = uiParticipants?.find(p => String(p.id) === String(id));
+      if (hitP) return hitP.name || (hitP.email ? hitP.email.split('@')[0] : `User #${hitP.id}`);
+      return `User #${id}`;
+    };
+
+    let members: BillDetail['members'] = [];
+
+    if (uiMembers && uiMembers.length) {
+      // ✅ Manual Split: ใช้ยอดที่คำนวณมาแล้ว
+      members = uiMembers.map(m => ({
+        avatar: m.imageUrl || 'https://placehold.co/80x80?text=User',
+        name: m.name || (m.email ? m.email.split('@')[0] : `User #${m.id}`),
+        amount: Number(m.amount) || 0,
+        status: 'pay',
+      }));
+    } else if (uiParticipants && uiParticipants.length) {
+      // ✅ Equal Split: แบ่งเท่ากัน
+      const shareCount = uiParticipants.length || 1;
+      const perShare = shareCount > 0 ? Math.round((amount / shareCount) * 100) / 100 : 0;
+      members = uiParticipants.map(p => ({
+        avatar: p.imageUrl || 'https://placehold.co/80x80?text=User',
+        name: p.name || (p.email ? p.email.split('@')[0] : `User #${p.id}`),
+        amount: perShare,
+        status: 'pay',
+      }));
+    } else {
+      // ไม่มีข้อมูลพอ — รอโหลดจาก API
+      return null;
+    }
+
+    const payerName = findNameById(payerId);
 
     return {
       id: b.id ?? billId ?? '',
       storeName: title,
-      payer: payerName,
+      payer: payerName ?? '',
       date: createdAt.slice(0, 10),
       members,
     } as BillDetail;
@@ -73,7 +102,7 @@ export const BillDetailPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(!initialBill);
   const [error, setError] = useState<string | null>(null);
 
-  // รีเฟรชจาก API ด้วย billId (ถ้ามี) เพื่อให้ข้อมูลจริงอัปเดตทีหลัง
+  // โหลดข้อมูลจริงจาก API แล้ว normalize ให้ status เป็น 'pay' ทุกคน
   useEffect(() => {
     if (!billId) return;
     let cancelled = false;
@@ -81,20 +110,26 @@ export const BillDetailPage: React.FC = () => {
     (async () => {
       try {
         const data = await getBillDetails(billId);
+
+        const normalized: BillDetail = {
+          ...data,
+          members: (data.members ?? []).map(
+            (m: BillMember) => ({ ...m, status: 'pay' as const })
+          ),
+        };
+
         if (!cancelled) {
-          setBill(data);
+          setBill(normalized);
           setError(null);
         }
       } catch (err: any) {
-        if (!initialBill) setError(err?.message ?? 'Load failed');
+        if (!initialBill && !cancelled) setError(err?.message ?? 'Load failed');
       } finally {
         if (!initialBill && !cancelled) setLoading(false);
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [billId, initialBill]);
 
   const handlePayClick = (status: 'done' | 'pay' | 'check') => {
