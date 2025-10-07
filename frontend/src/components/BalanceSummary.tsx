@@ -1,13 +1,14 @@
 import { ExclamationTriangleIcon, CheckCircleIcon } from "@heroicons/react/24/solid";
 import { useState, useEffect } from "react";
 import { Transaction } from "../types";
-import { getTransactions } from "../utils/api";
+import { getTransactions, getBalanceSummary } from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function BalanceSummary() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [balanceSummary, setBalanceSummary] = useState<{ youOweTotal: number; youAreOwedTotal: number } | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -21,7 +22,17 @@ export default function BalanceSummary() {
       }
     };
 
+    const fetchBalanceSummary = async () => {
+      try {
+        const summary = await getBalanceSummary();
+        setBalanceSummary(summary);
+      } catch (error) {
+        console.error("Failed to fetch balance summary", error);
+      }
+    };
+
     fetchTransactions();
+    fetchBalanceSummary();
   }, []);
 
   const sortedTransactions = [...transactions].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -49,11 +60,11 @@ export default function BalanceSummary() {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-white shadow p-4">
           <p className="text-gray-500 text-sm">You owe</p>
-          <p className="text-2xl font-bold text-red-500">$43.50</p>
+          <p className="text-2xl font-bold text-red-500">${balanceSummary ? balanceSummary.youOweTotal.toFixed(2) : '0.00'}</p>
         </div>
         <div className="rounded-xl bg-white shadow p-4">
           <p className="text-gray-500 text-sm">You are owed</p>
-          <p className="text-2xl font-bold text-green-500">$20.00</p>
+          <p className="text-2xl font-bold text-green-500">${balanceSummary ? balanceSummary.youAreOwedTotal.toFixed(2) : '0.00'}</p>
         </div>
       </div>
 

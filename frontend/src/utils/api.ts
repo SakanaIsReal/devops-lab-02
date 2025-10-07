@@ -490,6 +490,11 @@ export const fetchUserProfiles = async (ids: number[]) => {
   return out;
 };
 // utils/api.ts
+export const getBalanceSummary = async (): Promise<{ youOweTotal: number; youAreOwedTotal: number }> => {
+    const response = await api.get('/api/me/balances/summary');
+    return response.data;
+};
+
 export const removeMember = async (groupId: number | string, userId: number | string) => {
   return api.delete(`/api/groups/${groupId}/members/${userId}`);
 };
