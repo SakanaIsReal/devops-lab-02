@@ -1,6 +1,10 @@
 import axios from 'axios';
-import { Group, PaymentDetails, Settlement, Transaction, User } from '../types';
-import { UserUpdateForm } from '../types/index'
+import { Balance, Group, PaymentDetails, Settlement, Transaction, User, UserUpdateForm } from '../types';
+
+export const getBalances = async (): Promise<Balance[]> => {
+    const response = await api.get('/api/me/balances');
+    return response.data;
+};
 const API_BASE_URL = 'http://localhost:8081';
 
 const api = axios.create({
