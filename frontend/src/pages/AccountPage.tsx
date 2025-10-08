@@ -114,7 +114,7 @@ export const AccountPage: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen h-[160vh] bg-gray-100 flex flex-col">
       <Navbar />
                 <CircleBackButton onClick={() => {
             navigate("/home", { replace: true });
