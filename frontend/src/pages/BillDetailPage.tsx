@@ -1,11 +1,14 @@
+// src/pages/BillDetailPage.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 import { getBillDetails } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 import type { BillDetail } from '../types';
 
+// ---------- styles ----------
 const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
   switch (status) {
     case 'done':  return { backgroundColor: '#52bf52' };
@@ -14,29 +17,33 @@ const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
   }
 };
 
-// ---------- helper types ----------
-type BillMember = BillDetail['members'][number];
-
+// ---------- helper ----------
 type NavState = {
-  bill?: any; // response จาก POST /api/expenses
+  bill?: any;
   ui?: {
     title?: string;
     amount?: number;
     payerUserId?: number | string;
-    // manual split ส่งยอดต่อคนมา
     members?: Array<{ id: number | string; name?: string; amount: number; imageUrl?: string; email?: string }>;
-    // equal split เดิม ส่งรายชื่ออย่างเดียว
     participants?: Array<{ id: number | string; name?: string; email?: string; imageUrl?: string }>;
     createdAt?: string;
+    groupId?: string | number;
+    billId?: string | number;
   };
 };
+
+const displayName = (obj: { name?: string; email?: string; id?: string | number } = {}) =>
+  obj.name?.trim()
+  || (obj.email ? obj.email.split('@')[0] : undefined)
+  || (obj.id != null ? `User #${obj.id}` : 'User');
 
 export const BillDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { billId } = useParams<{ billId: string }>();
   const location = useLocation() as { state?: NavState };
+  const { user } = useAuth();
 
-  // สร้างบิลตั้งต้นจาก state ที่ส่งมาหน้า previous (แสดงผลได้ทันที)
+  // ---------- initial bill จาก state (แสดงผลได้ทันที) ----------
   const initialBill: BillDetail | null = useMemo(() => {
     const nav = location.state;
     if (!nav?.bill && !nav?.ui) return null;
@@ -47,62 +54,58 @@ export const BillDetailPage: React.FC = () => {
     const title     = b.title ?? ui.title ?? 'Expense';
     const amount    = Number(b.amount ?? ui.amount ?? 0);
     const createdAt = String(b.createdAt ?? ui.createdAt ?? new Date().toISOString());
-    const payerId   = b.payerUserId ?? ui.payerUserId;
+    const payerUserId = b.payerUserId ?? ui.payerUserId;
 
     const uiMembers      = ui.members;
     const uiParticipants = ui.participants;
 
-    // helper หา display name จาก id
-    const findNameById = (id?: number | string) => {
-      if (id == null) return undefined;
-      const hitM = uiMembers?.find(m => String(m.id) === String(id));
-      if (hitM) return hitM.name || (hitM.email ? hitM.email.split('@')[0] : `User #${hitM.id}`);
-      const hitP = uiParticipants?.find(p => String(p.id) === String(id));
-      if (hitP) return hitP.name || (hitP.email ? hitP.email.split('@')[0] : `User #${hitP.id}`);
-      return `User #${id}`;
-    };
-
-    let members: BillDetail['members'] = [];
-
+    // สร้าง members จากสิ่งที่มีใน state และ “อัด id” ไว้ใช้ตอน pay
+    let membersUI: any[] = [];
     if (uiMembers && uiMembers.length) {
-      // ✅ Manual Split: ใช้ยอดที่คำนวณมาแล้ว
-      members = uiMembers.map(m => ({
+      membersUI = uiMembers.map(m => ({
+        id: m.id,
         avatar: m.imageUrl || 'https://placehold.co/80x80?text=User',
-        name: m.name || (m.email ? m.email.split('@')[0] : `User #${m.id}`),
+        name: displayName({ name: m.name, email: m.email, id: m.id }),
         amount: Number(m.amount) || 0,
-        status: 'pay',
+        status: 'pay' as const,
       }));
     } else if (uiParticipants && uiParticipants.length) {
-      // ✅ Equal Split: แบ่งเท่ากัน
-      const shareCount = uiParticipants.length || 1;
-      const perShare = shareCount > 0 ? Math.round((amount / shareCount) * 100) / 100 : 0;
-      members = uiParticipants.map(p => ({
+      const n = uiParticipants.length || 1;
+      const perShare = n > 0 ? Math.round((amount / n) * 100) / 100 : 0;
+      membersUI = uiParticipants.map(p => ({
+        id: p.id,
         avatar: p.imageUrl || 'https://placehold.co/80x80?text=User',
-        name: p.name || (p.email ? p.email.split('@')[0] : `User #${p.id}`),
+        name: displayName({ name: p.name, email: p.email, id: p.id }),
         amount: perShare,
-        status: 'pay',
+        status: 'pay' as const,
       }));
     } else {
-      // ไม่มีข้อมูลพอ — รอโหลดจาก API
-      return null;
+      return null; // ไม่มีข้อมูลพอ — รอ API
     }
 
-    const payerName = findNameById(payerId);
+    const payerName =
+      displayName(
+        uiMembers?.find(m => String(m.id) === String(payerUserId))
+        || uiParticipants?.find(p => String(p.id) === String(payerUserId))
+        || { id: payerUserId }
+      );
 
-    return {
+    const bill: BillDetail = {
       id: b.id ?? billId ?? '',
       storeName: title,
-      payer: payerName ?? '',
+      payer: payerName,
       date: createdAt.slice(0, 10),
-      members,
-    } as BillDetail;
+      members: membersUI as unknown as BillDetail['members'],
+    };
+
+    return bill;
   }, [location.state, billId]);
 
   const [bill, setBill] = useState<BillDetail | null>(initialBill);
   const [loading, setLoading] = useState<boolean>(!initialBill);
   const [error, setError] = useState<string | null>(null);
 
-  // โหลดข้อมูลจริงจาก API แล้ว normalize ให้ status เป็น 'pay' ทุกคน
+  // ---------- โหลดข้อมูลจริงจาก API (รองรับ refresh) ----------
   useEffect(() => {
     if (!billId) return;
     let cancelled = false;
@@ -111,15 +114,30 @@ export const BillDetailPage: React.FC = () => {
       try {
         const data = await getBillDetails(billId);
 
+        const mappedMembers: any[] = (
+          Array.isArray((data as any)?.members) ? (data as any).members : []
+        ).map((m: any, idx: number) => ({
+          ...m,
+          id: m.id ?? m.userId ?? m.user?.id ?? idx,
+          name: displayName({ name: m.name ?? m.user?.name, email: m.email ?? m.user?.email, id: m.id }),
+          avatar: m.avatar ?? m.imageUrl ?? m.user?.avatar ?? 'https://placehold.co/80x80?text=User',
+          amount: Number(m.amount ?? m.value ?? m.share ?? m.owed ?? 0) || 0,
+          status: 'pay' as const,
+        }));
+
         const normalized: BillDetail = {
-          ...data,
-          members: (data.members ?? []).map(
-            (m: BillMember) => ({ ...m, status: 'pay' as const })
-          ),
+          ...(data as any),
+          members: mappedMembers as unknown as BillDetail['members'],
         };
 
         if (!cancelled) {
-          setBill(normalized);
+          setBill(prev => {
+            if (!prev) return normalized;
+            const safeMembers = (mappedMembers && mappedMembers.length)
+              ? (mappedMembers as unknown as BillDetail['members'])
+              : prev.members;
+            return { ...normalized, members: safeMembers };
+          });
           setError(null);
         }
       } catch (err: any) {
@@ -132,8 +150,30 @@ export const BillDetailPage: React.FC = () => {
     return () => { cancelled = true; };
   }, [billId, initialBill]);
 
-  const handlePayClick = (status: 'done' | 'pay' | 'check') => {
-    if (status === 'pay' && bill) navigate(`/pay/${bill.id}`);
+  // ---------- resolve groupId สดทุกครั้งตอนคลิก ----------
+  const resolveGroupId = (): string => {
+  const st: any = location.state || {};
+  // ✅ เอา ui.groupId มาก่อน → ถ้าส่งมา 23 จะชนะค่า 19 ที่อยู่ใน bill/groupObj
+  return String(
+    st.ui?.groupId ??
+    st.bill?.groupId ??
+    (bill as any)?.groupId ??
+    ''
+  );
+};
+
+
+  // ---------- ปุ่ม Pay: ไป /pay/{groupId}/{memberId} ----------
+  const handlePayClick = (status: 'done' | 'pay' | 'check', memberId?: number | string) => {
+    if (status !== 'pay') return;
+
+    const gId = resolveGroupId();
+    const paymentId = memberId ?? user?.id;
+
+    if (!gId) { alert('ไม่พบ groupId สำหรับบิลนี้'); return; }
+    if (!paymentId) { alert('ไม่พบ paymentId หรือ userId'); return; }
+
+    navigate(`/pay/${gId}/${paymentId}`);
   };
 
   return (
@@ -151,18 +191,18 @@ export const BillDetailPage: React.FC = () => {
         {bill && (
           <>
             <div className="flex items-center">
-              <p className="text-lg font-semibold" style={{ color: '#0c0c0c' }}>
+              <p className="text-lg font-semibold text-[#0c0c0c]">
                 ร้าน: {bill.storeName}
               </p>
-              <p className="text-lg font-semibold ml-8" style={{ color: '#0c0c0c' }}>
+              <p className="text-lg font-semibold ml-8 text-[#0c0c0c]">
                 Payer: {bill.payer}
               </p>
             </div>
-            <p className="text-lg font-semibold mb-4" style={{ color: '#0c0c0c' }}>
+            <p className="text-lg font-semibold mb-4 text-[#0c0c0c]">
               Date: {bill.date}
             </p>
 
-            {bill.members.map((member, idx) => (
+            {(bill.members as any[]).map((member: any, idx: number) => (
               <div
                 key={idx}
                 className="bg-white p-3 rounded-lg shadow-lg flex items-center justify-between mb-4"
@@ -175,16 +215,14 @@ export const BillDetailPage: React.FC = () => {
                   />
                   <div>
                     <p className="font-semibold">{member.name}</p>
-                    <p className="text-sm" style={{ color: '#628fa6' }}>
-                      Pay : {member.amount} Bath
-                    </p>
+                    <p className="text-sm text-[#628fa6]">Pay : {member.amount} Bath</p>
                   </div>
                 </div>
                 <div className="flex justify-center">
                   <button
                     className="w-24 text-center px-4 py-2 rounded-lg text-white font-bold"
                     style={getStatusStyle(member.status)}
-                    onClick={() => handlePayClick(member.status)}
+                    onClick={() => handlePayClick(member.status, member.id)} // ส่ง member.id
                   >
                     {member.status === 'done'
                       ? 'Done'
