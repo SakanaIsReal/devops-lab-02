@@ -70,8 +70,8 @@ export const getTransactions = async (): Promise<any[]> => {
     return response.data;
 };
 
-export const getGroups = async (): Promise<any[]> => {
-    const response = await api.get('/api/groups');
+export const getGroups = async (): Promise<Group[]> => {
+    const response = await api.get('/api/groups/mine');
     return response.data;
 };
 
@@ -85,6 +85,11 @@ export const searchUsers = async (query: string): Promise<any[]> => {
 
 export const getBillDetails = async (billId: string): Promise<any> => {
     const response = await api.get(`/api/bills/${billId}`);
+    return response.data;
+};
+
+export const getExpenseSettlements = async (expenseId: string): Promise<any[]> => {
+    const response = await api.get(`/api/expenses/${expenseId}/settlement`);
     return response.data;
 };
 
@@ -604,6 +609,11 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
         settled: settlement.settled,
         remaining: settlement.remaining
     };
+};
+
+export const deleteGroup = async (groupId: string | number): Promise<any> => {
+    const response = await api.delete(`/api/groups/${groupId}`);
+    return response.data;
 };
 
 // Add this interface to your types file
