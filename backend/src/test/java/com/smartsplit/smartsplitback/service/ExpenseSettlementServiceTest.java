@@ -48,15 +48,15 @@ class ExpenseSettlementServiceTest {
     class OwedForUser {
 
         @Test
-        @DisplayName("ค่า share คิดจาก value + percent/100 * item.amount รวมทุกบรรทัด")
-        void sum_value_plus_percent_of_itemAmount() {
+        @DisplayName("รวมเฉพาะค่า shareValue ของทุกบรรทัด (ไม่คิดเปอร์เซ็นต์แล้ว)")
+        void sum_share_value_only_ignore_percent() {
             Long expenseId = 10L, userId = 1L;
 
             // rows:
-            // 1) item=100, value=2.50, percent=10  -> 2.50 + (100*10/100)=10 => 12.50
-            // 2) item=50,  value=null, percent=20  -> 0    + (50*20/100)=10  => 10.00
-            // 3) item=80,  value=1.25, percent=null-> 1.25 + 0               => 1.25
-            // 4) item=null,value=null, percent=null-> 0 + 0                  => 0
+            // 1) item=100, value=2.50, percent=10   -> 2.50 (ignore percent)
+            // 2) item=50,  value=null, percent=20   -> 0
+            // 3) item=80,  value=1.25, percent=null -> 1.25
+            // 4) item=null,value=null, percent=null -> 0
             when(shares.fetchForExpenseAndUser(expenseId, userId)).thenReturn(List.of(
                     share(new BigDecimal("100"), new BigDecimal("2.50"), new BigDecimal("10")),
                     share(new BigDecimal("50"), null, new BigDecimal("20")),
@@ -66,7 +66,7 @@ class ExpenseSettlementServiceTest {
 
             BigDecimal owed = service.owedForUser(expenseId, userId);
 
-            assertThat(owed).isEqualByComparingTo("23.75"); // 12.50 + 10 + 1.25 + 0
+            assertThat(owed).isEqualByComparingTo("3.75"); // 2.50 + 0 + 1.25 + 0
             verify(shares).fetchForExpenseAndUser(expenseId, userId);
         }
 
@@ -75,9 +75,9 @@ class ExpenseSettlementServiceTest {
         void tolerate_nulls_as_zero() {
             Long expenseId = 11L, userId = 2L;
             when(shares.fetchForExpenseAndUser(expenseId, userId)).thenReturn(List.of(
-                    share(null, null, new BigDecimal("10")),   // base = 0
-                    share(null, new BigDecimal("1.00"), null), // percent = 0
-                    share(null, null, null)                    // all null
+                    share(null, null, new BigDecimal("10")),   // value = 0
+                    share(null, new BigDecimal("1.00"), null), // value = 1.00
+                    share(null, null, null)                    // value = 0
             ));
 
             BigDecimal owed = service.owedForUser(expenseId, userId);
@@ -124,7 +124,8 @@ class ExpenseSettlementServiceTest {
         void settled_true_and_remaining_zero() {
             Long expenseId = 20L, userId = 2L;
             when(shares.fetchForExpenseAndUser(expenseId, userId)).thenReturn(List.of(
-                    share(new BigDecimal("100"), new BigDecimal("5.00"), new BigDecimal("5")) // 5 + 5 = 10
+                    // เดิมคำนวณได้ 10 จาก value + percent; ตอนนี้คิดเฉพาะ value = 5.00
+                    share(new BigDecimal("100"), new BigDecimal("5.00"), new BigDecimal("5"))
             ));
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, userId))
                     .thenReturn(new BigDecimal("10.00"));
@@ -133,7 +134,7 @@ class ExpenseSettlementServiceTest {
 
             assertThat(dto.expenseId()).isEqualTo(expenseId);
             assertThat(dto.userId()).isEqualTo(userId);
-            assertThat(dto.owedAmount()).isEqualByComparingTo("10.00");
+            assertThat(dto.owedAmount()).isEqualByComparingTo("5.00");
             assertThat(dto.paidAmount()).isEqualByComparingTo("10.00");
             assertThat(dto.settled()).isTrue();
             assertThat(dto.remaining()).isEqualByComparingTo("0.00");
@@ -144,7 +145,8 @@ class ExpenseSettlementServiceTest {
         void settled_false_and_remaining_positive() {
             Long expenseId = 21L, userId = 3L;
             when(shares.fetchForExpenseAndUser(expenseId, userId)).thenReturn(List.of(
-                    share(new BigDecimal("50"), null, new BigDecimal("10")) // 0 + 5 = 5
+                    // เดิมใช้ percent 10% ของ 50 => 5.00; ตอนนี้ต้องให้ value เอง
+                    share(new BigDecimal("50"), new BigDecimal("5.00"), null) // owed = 5.00
             ));
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, userId))
                     .thenReturn(new BigDecimal("3.50"));
@@ -162,7 +164,7 @@ class ExpenseSettlementServiceTest {
         void remaining_clamped_to_zero() {
             Long expenseId = 22L, userId = 4L;
             when(shares.fetchForExpenseAndUser(expenseId, userId)).thenReturn(List.of(
-                    share(new BigDecimal("10"), new BigDecimal("0.50"), new BigDecimal("0")) // 0.50
+                    share(new BigDecimal("10"), new BigDecimal("0.50"), new BigDecimal("0")) // owed = 0.50
             ));
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, userId))
                     .thenReturn(new BigDecimal("99.99"));
@@ -191,12 +193,12 @@ class ExpenseSettlementServiceTest {
             // participants จาก payments VERIFIED: 2,3
             when(payments.findVerifiedPayerIdsByExpense(expenseId)).thenReturn(List.of(2L, 3L));
 
-            // Mock owed/paid ผ่านภายใน userSettlement() โดยโมเดล owedForUser & paidForUser:
+            // ปรับ owed ให้คิดจาก value เท่านั้น:
             // owed(1)=5, paid(1)=2 -> not settled, remaining=3
             // owed(2)=0, paid(2)=7 -> settled, remaining=0
             // owed(3)=10, paid(3)=10 -> settled, remaining=0
             when(shares.fetchForExpenseAndUser(expenseId, 1L)).thenReturn(List.of(
-                    share(new BigDecimal("50"), null, new BigDecimal("10")) // 5.00
+                    share(new BigDecimal("50"), new BigDecimal("5.00"), null) // owed = 5.00
             ));
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, 1L)).thenReturn(new BigDecimal("2.00"));
 
@@ -204,7 +206,7 @@ class ExpenseSettlementServiceTest {
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, 2L)).thenReturn(new BigDecimal("7.00"));
 
             when(shares.fetchForExpenseAndUser(expenseId, 3L)).thenReturn(List.of(
-                    share(new BigDecimal("100"), null, new BigDecimal("10")) // 10.00
+                    share(new BigDecimal("100"), new BigDecimal("10.00"), null) // owed = 10.00
             ));
             when(payments.sumVerifiedAmountByExpenseIdAndUser(expenseId, 3L)).thenReturn(new BigDecimal("10.00"));
 

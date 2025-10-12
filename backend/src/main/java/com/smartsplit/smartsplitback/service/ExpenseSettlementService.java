@@ -24,23 +24,19 @@ public class ExpenseSettlementService {
 
     @Transactional(readOnly = true)
     public BigDecimal owedForUser(Long expenseId, Long userId) {
-        // ดึง shares ของ user ใน expense (พร้อม item.amount)
         var list = shares.fetchForExpenseAndUser(expenseId, userId);
         BigDecimal sum = BigDecimal.ZERO;
 
         for (ExpenseItemShare s : list) {
-            BigDecimal itemAmt = (s.getExpenseItem() != null && s.getExpenseItem().getAmount() != null)
-                    ? s.getExpenseItem().getAmount() : BigDecimal.ZERO;
-
-            BigDecimal v = (s.getShareValue() != null) ? s.getShareValue() : BigDecimal.ZERO;
-            BigDecimal pct = (s.getSharePercent() != null) ? s.getSharePercent() : BigDecimal.ZERO;
-
-            // rule: share = value + (percent/100 * item.amount)
-            BigDecimal byPct = itemAmt.multiply(pct).divide(new BigDecimal("100"));
-            sum = sum.add(v).add(byPct);
+            BigDecimal v = s.getShareValue();
+            if (v != null) {
+                sum = sum.add(v);
+            }
+            
         }
         return sum;
     }
+
 
     @Transactional(readOnly = true)
     public BigDecimal paidForUser(Long expenseId, Long userId) {

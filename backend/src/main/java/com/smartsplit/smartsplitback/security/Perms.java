@@ -47,14 +47,12 @@ public class Perms {
         return extractUserId(auth);
     }
 
-    /** แบบที่คุณต้องการ */
     private Long extractUserId(Authentication auth) {
         if (auth == null || auth.getPrincipal() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No authentication");
         }
         Object p = auth.getPrincipal();
 
-        // ลองเรียกเมธอดยอดฮิตที่โปรเจกต์มักใช้เก็บ user id
         for (String m : new String[]{"getId", "getUid", "getUserId"}) {
             try {
                 Method md = p.getClass().getMethod(m);
@@ -63,7 +61,6 @@ public class Perms {
             } catch (Exception ignored) {}
         }
 
-        // สำรอง: ถ้า subject ใน token เป็น userId ตรง ๆ
         try {
             return Long.valueOf(auth.getName());
         } catch (Exception e) {
@@ -95,7 +92,7 @@ public class Perms {
         if (me == null) {
             return false;
         }
-        // เจ้าของกลุ่มถือว่าเป็นสมาชิกโดยปริยาย
+
         Long ownerId = groups.findOwnerIdById(groupId);
         boolean isOwner = ownerId != null && ownerId.equals(me);
         if (isOwner) {
@@ -154,7 +151,7 @@ public class Perms {
         Long me = sec.currentUserId();
         if (me == null) return false;
 
-        // ต้องสร้างในนาม "ตัวเอง" เท่านั้น
+
         if (!Objects.equals(me, fromUserId)) return false;
 
         // ต้องเป็นสมาชิกของกลุ่มนี้
