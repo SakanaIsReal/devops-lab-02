@@ -15,16 +15,21 @@ export default function EqualSplitPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
-const { user } = useAuth(); // ใช้เป็น payerUserId
+  const { user } = useAuth(); // ใช้เป็น payerUserId
 
   // รับ groupId ได้ทั้งจาก URL / และ state
   const { id: idParam } = useParams<{ id?: string }>();
   const location = useLocation() as {
     state?: { group?: { id?: number | string }; groupId?: number | string };
   };
-  const groupId: string | undefined = useMemo(() => {
+
+  // ✅ resolve groupId ให้ชัด และบังคับเป็น number เสมอ
+  const groupIdNum: number | undefined = useMemo(() => {
     const fromState = location.state?.group?.id ?? location.state?.groupId;
-    return idParam ?? (fromState != null ? String(fromState) : undefined);
+    const raw = idParam ?? (fromState != null ? String(fromState) : undefined);
+    if (raw == null) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
   }, [idParam, location.state]);
 
   // รายชื่อสมาชิกจาก API
@@ -42,14 +47,14 @@ const { user } = useAuth(); // ใช้เป็น payerUserId
         setLoadingMembers(true);
         setMembersError(null);
 
-        if (!groupId) {
+        if (!groupIdNum) {
           setMembersError("ไม่พบ groupId สำหรับดึงรายชื่อสมาชิก");
           setParticipants([]);
           setIncludedIds([]);
           return;
         }
 
-        const base = await getGroupMembers(groupId);
+        const base = await getGroupMembers(String(groupIdNum));
         if (cancelled) return;
 
         const needIds = base
@@ -96,7 +101,7 @@ const { user } = useAuth(); // ใช้เป็น payerUserId
         console.error("getGroupMembers failed:", {
           status: e?.response?.status,
           data: e?.response?.data,
-          groupId,
+          groupId: groupIdNum,
         });
         if (!cancelled) setMembersError("โหลดรายชื่อสมาชิกไม่สำเร็จ");
       } finally {
@@ -107,7 +112,7 @@ const { user } = useAuth(); // ใช้เป็น payerUserId
     return () => {
       cancelled = true;
     };
-  }, [groupId]);
+  }, [groupIdNum]);
 
   // สลับเลือกผู้ร่วมจ่าย
   const toggleInclude = (id: number) => {
@@ -116,71 +121,76 @@ const { user } = useAuth(); // ใช้เป็น payerUserId
     );
   };
 
-  const handleSubmit = async () => {
-  if (!groupId) { alert("ไม่พบ groupId"); return; }
-
-  const amountNum = Number(amount);
-  if (!Number.isFinite(amountNum) || amountNum <= 0) { alert("ใส่ยอดให้ถูกต้อง"); return; }
-  if (!expenseName.trim()) { alert("กรอกชื่อรายการก่อน"); return; }
-  if (includedIds.length === 0) { alert("ต้องมีผู้ร่วมจ่ายอย่างน้อย 1 คน"); return; }
-
-  // ถ้ามี useAuth อยู่แล้วจะใช้ user?.id ได้; ถ้าไม่มีก็ปล่อยเป็น includedIds[0]
-  const payerUserId = Number((user as any)?.id ?? includedIds[0]);
-
-  setSaving(true);
-  try {
-    // ⬇⬇⬇ วางบล็อกนี้ตรงนี้ ⬇⬇⬇
-    const expense = await createBill({
-      groupId,
-      payerUserId,
-      amount: amountNum,
-      title: expenseName.trim(),
-      type: 'EQUAL',
-      status: 'SETTLED',
-    });
-
-    const billId = expense?.id ?? expense?.expenseId;
-    if (!billId) { alert('สร้างบิลสำเร็จ แต่ไม่พบ billId'); return; }
-
-    const uiParticipants = participants
-      .filter(p => includedIds.includes(Number(p.id)))
-      .map(p => ({
-        id: Number(p.id),
-        name: labelFor(p),
-        email: p.email,
-        imageUrl: p.imageUrl,
-      }));
-
-    navigate(`/bill/${billId}`, {
-      state: {
-        bill: expense, // ของจริงจาก BE
-        ui: {
-          title: expenseName.trim(),
-          amount: amountNum,
-          payerUserId,
-          participants: uiParticipants,
-          createdAt: expense?.createdAt ?? new Date().toISOString(),
-        },
-      },
-    });
-    // ⬆⬆⬆ จบส่วนที่ต้องวาง ⬆⬆⬆
-  } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.response?.data?.error || '';
-    alert(`สร้างบิลไม่สำเร็จ: ${e?.response?.status ?? 'ERR'}${msg ? `\n${msg}` : ''}`);
-  } finally {
-    setSaving(false);
-  }
-};
-
-
-  const handleBack = () => navigate(-1);
-
   const labelFor = (p: User) =>
     (p.name && p.name.trim()) ||
     (p as any).username ||
     (p as any).userName ||
     (p.email ? p.email.split("@")[0] : "") ||
     `User #${p.id}`;
+
+  const handleSubmit = async () => {
+    if (!groupIdNum) { alert("ไม่พบ groupId"); return; }
+
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) { alert("ใส่ยอดให้ถูกต้อง"); return; }
+    if (!expenseName.trim()) { alert("กรอกชื่อรายการก่อน"); return; }
+    if (includedIds.length === 0) { alert("ต้องมีผู้ร่วมจ่ายอย่างน้อย 1 คน"); return; }
+
+    // ถ้ามี useAuth อยู่แล้วจะใช้ user?.id ได้; ถ้าไม่มีก็ปล่อยเป็น includedIds[0]
+    const payerUserId = Number((user as any)?.id ?? includedIds[0]);
+
+    setSaving(true);
+    try {
+      // ✅ สร้างบิลด้วย groupId ที่ถูกต้อง (เป็นเลข)
+      const expense = await createBill({
+        groupId: groupIdNum,
+        payerUserId,
+        amount: amountNum,
+        title: expenseName.trim(),
+        type: 'EQUAL',
+        status: 'SETTLED',
+      });
+
+      const billId = expense?.id ?? expense?.expenseId;
+      if (!billId) { alert('สร้างบิลสำเร็จ แต่ไม่พบ billId'); return; }
+
+      // สร้างรายชื่อผู้ร่วมจ่ายสำหรับ UI (ติด id ไปครบ)
+      const uiParticipants = participants
+        .filter(p => includedIds.includes(Number(p.id)))
+        .map(p => ({
+          id: Number(p.id),
+          name: labelFor(p),
+          email: p.email,
+          imageUrl: p.imageUrl,
+        }));
+
+      // ✅ ส่ง groupId ไปหน้า BillDetail ทั้งใน bill.groupId และ ui.groupId
+      navigate(`/bill/${billId}`, {
+        state: {
+          bill: {
+            ...expense,
+            groupId: expense?.groupId ?? groupIdNum, // ถ้า BE ตอบกลับไม่มี groupId ให้ใช้ของเรา
+          },
+          ui: {
+            billId,
+            groupId: groupIdNum,                     // ⬅ สำคัญมาก
+            title: expenseName.trim(),
+            amount: amountNum,
+            payerUserId,
+            participants: uiParticipants,
+            createdAt: expense?.createdAt ?? new Date().toISOString(),
+          },
+        },
+      });
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || '';
+      alert(`สร้างบิลไม่สำเร็จ: ${e?.response?.status ?? 'ERR'}${msg ? `\n${msg}` : ''}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBack = () => navigate(-1);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
