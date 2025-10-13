@@ -11,6 +11,13 @@ const api = axios.create({
     baseURL: API_BASE_URL,
 });
 
+// utils/api.ts
+export const getPaymentDetail = async (billId: string, userId: string) => {
+  const response = await api.get(`/api/payments/${billId}/${userId}`);
+  return response.data;
+};
+
+
 // FIX: Consistent token key
 export const getToken = () => {
     return localStorage.getItem('accessToken'); // Changed from 'token' to 'accessToken'

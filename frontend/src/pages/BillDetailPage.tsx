@@ -27,7 +27,6 @@ type NavState = {
     members?: Array<{ id: number | string; name?: string; amount: number; imageUrl?: string; email?: string }>;
     participants?: Array<{ id: number | string; name?: string; email?: string; imageUrl?: string }>;
     createdAt?: string;
-    groupId?: string | number;
     billId?: string | number;
   };
 };
@@ -39,9 +38,19 @@ const displayName = (obj: { name?: string; email?: string; id?: string | number 
 
 export const BillDetailPage: React.FC = () => {
   const navigate = useNavigate();
-  const { billId } = useParams<{ billId: string }>();
+  const { billId: billIdFromUrl } = useParams<{ billId: string }>();
   const location = useLocation() as { state?: NavState };
   const { user } = useAuth();
+
+  // expenseId ที่ PayPage ต้องใช้ (= billId)
+  const expenseId = useMemo(() => {
+    return String(
+      location.state?.bill?.id ??
+      location.state?.ui?.billId ??
+      billIdFromUrl ??
+      ''
+    );
+  }, [location.state, billIdFromUrl]);
 
   // ---------- initial bill จาก state (แสดงผลได้ทันที) ----------
   const initialBill: BillDetail | null = useMemo(() => {
@@ -59,7 +68,7 @@ export const BillDetailPage: React.FC = () => {
     const uiMembers      = ui.members;
     const uiParticipants = ui.participants;
 
-    // สร้าง members จากสิ่งที่มีใน state และ “อัด id” ไว้ใช้ตอน pay
+    // รวมสมาชิกจาก state (และ “อัด id” ไว้ใช้ตอน pay)
     let membersUI: any[] = [];
     if (uiMembers && uiMembers.length) {
       membersUI = uiMembers.map(m => ({
@@ -90,16 +99,14 @@ export const BillDetailPage: React.FC = () => {
         || { id: payerUserId }
       );
 
-    const bill: BillDetail = {
-      id: b.id ?? billId ?? '',
+    return {
+      id: b.id ?? expenseId ?? '',
       storeName: title,
       payer: payerName,
       date: createdAt.slice(0, 10),
       members: membersUI as unknown as BillDetail['members'],
     };
-
-    return bill;
-  }, [location.state, billId]);
+  }, [location.state, expenseId]);
 
   const [bill, setBill] = useState<BillDetail | null>(initialBill);
   const [loading, setLoading] = useState<boolean>(!initialBill);
@@ -107,17 +114,18 @@ export const BillDetailPage: React.FC = () => {
 
   // ---------- โหลดข้อมูลจริงจาก API (รองรับ refresh) ----------
   useEffect(() => {
-    if (!billId) return;
+    if (!expenseId) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const data = await getBillDetails(billId);
+        const data = await getBillDetails(expenseId);
 
         const mappedMembers: any[] = (
           Array.isArray((data as any)?.members) ? (data as any).members : []
         ).map((m: any, idx: number) => ({
           ...m,
+          // ให้มี id เสมอสำหรับส่งต่อไป PayPage
           id: m.id ?? m.userId ?? m.user?.id ?? idx,
           name: displayName({ name: m.name ?? m.user?.name, email: m.email ?? m.user?.email, id: m.id }),
           avatar: m.avatar ?? m.imageUrl ?? m.user?.avatar ?? 'https://placehold.co/80x80?text=User',
@@ -127,13 +135,14 @@ export const BillDetailPage: React.FC = () => {
 
         const normalized: BillDetail = {
           ...(data as any),
+          id: (data as any)?.id ?? expenseId,
           members: mappedMembers as unknown as BillDetail['members'],
         };
 
         if (!cancelled) {
           setBill(prev => {
             if (!prev) return normalized;
-            const safeMembers = (mappedMembers && mappedMembers.length)
+            const safeMembers = mappedMembers.length
               ? (mappedMembers as unknown as BillDetail['members'])
               : prev.members;
             return { ...normalized, members: safeMembers };
@@ -148,32 +157,17 @@ export const BillDetailPage: React.FC = () => {
     })();
 
     return () => { cancelled = true; };
-  }, [billId, initialBill]);
+  }, [expenseId, initialBill]);
 
-  // ---------- resolve groupId สดทุกครั้งตอนคลิก ----------
-  const resolveGroupId = (): string => {
-  const st: any = location.state || {};
-  // ✅ เอา ui.groupId มาก่อน → ถ้าส่งมา 23 จะชนะค่า 19 ที่อยู่ใน bill/groupObj
-  return String(
-    st.ui?.groupId ??
-    st.bill?.groupId ??
-    (bill as any)?.groupId ??
-    ''
-  );
-};
-
-
-  // ---------- ปุ่ม Pay: ไป /pay/{groupId}/{memberId} ----------
+  // ---------- ปุ่ม Pay: ไป /pay/{expenseId}/{memberId} ----------
   const handlePayClick = (status: 'done' | 'pay' | 'check', memberId?: number | string) => {
     if (status !== 'pay') return;
 
-    const gId = resolveGroupId();
-    const paymentId = memberId ?? user?.id;
+    const paymentUserId = memberId ?? user?.id;
+    if (!expenseId) { alert('ไม่พบ bill/expense id'); return; }
+    if (!paymentUserId) { alert('ไม่พบ user id สำหรับการชำระ'); return; }
 
-    if (!gId) { alert('ไม่พบ groupId สำหรับบิลนี้'); return; }
-    if (!paymentId) { alert('ไม่พบ paymentId หรือ userId'); return; }
-
-    navigate(`/pay/${gId}/${paymentId}`);
+    navigate(`/pay/${expenseId}/${paymentUserId}`);
   };
 
   return (
@@ -222,7 +216,7 @@ export const BillDetailPage: React.FC = () => {
                   <button
                     className="w-24 text-center px-4 py-2 rounded-lg text-white font-bold"
                     style={getStatusStyle(member.status)}
-                    onClick={() => handlePayClick(member.status, member.id)} // ส่ง member.id
+                    onClick={() => handlePayClick(member.status, member.id)} // ✅ ส่ง expenseId + member.id
                   >
                     {member.status === 'done'
                       ? 'Done'
@@ -240,3 +234,5 @@ export const BillDetailPage: React.FC = () => {
     </div>
   );
 };
+
+export default BillDetailPage;
