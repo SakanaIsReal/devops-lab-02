@@ -59,7 +59,6 @@ class UserControllerTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
-
     @MockitoBean JwtAuthFilter jwtAuthFilter;
     @MockitoBean JwtService jwtService;
 
@@ -193,12 +192,13 @@ class UserControllerTest {
         when(perm.isAdmin()).thenReturn(false);
         var userPartForbidden = new MockMultipartFile(
                 "user", "", "application/json",
-                objectMapper.writeValueAsBytes(new UserDto(null, "n@x.com", "New", "09", null, null)));
+                objectMapper.writeValueAsBytes(new UserDto(null, "n@x.com", "New", "09", null, null, null)));
         mockMvc.perform(multipart("/api/users").file(userPartForbidden))
                 .andExpect(status().isForbidden());
 
         // 201 เมื่อสำเร็จ (ต้องส่ง password และใช้พาร์ท "qrCode")
         when(perm.isAdmin()).thenReturn(true);
+        when(svc.encodePassword(anyString())).thenReturn("hashed-pass");
         when(svc.create(any(User.class))).thenAnswer((Answer<User>) inv -> {
             User u = inv.getArgument(0);
             u.setId(100L);
@@ -239,6 +239,7 @@ class UserControllerTest {
 
         // 201 เมื่อสำเร็จ (ต้องมี password)
         when(perm.isAdmin()).thenReturn(true);
+        when(svc.encodePassword(anyString())).thenReturn("hashed-pass");
         when(svc.create(any(User.class))).thenAnswer((Answer<User>) inv -> {
             User u = inv.getArgument(0);
             u.setId(101L);
@@ -262,7 +263,7 @@ class UserControllerTest {
         when(perm.isAdmin()).thenReturn(false);
         when(perm.isSelf(55L)).thenReturn(false);
 
-        var in = new UserDto(null, "u@x.com", "U", "08", "av", "qr");
+        var in = new UserDto(null, "u@x.com", "U", "08", "av", "qr", null);
         mockMvc.perform(put("/api/users/55").contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(in)))
                 .andExpect(status().isForbidden());
@@ -292,14 +293,12 @@ class UserControllerTest {
 
         var userPart = new MockMultipartFile(
                 "user", "", "application/json",
-                objectMapper.writeValueAsBytes(new UserDto(null, "u@x.com", "U", "08", null, null)));
+                objectMapper.writeValueAsBytes(new UserDto(null, "u@x.com", "U", "08", null, null, null)));
 
-        // ไม่มีสิทธิ์
         mockMvc.perform(multipart("/api/users/55").file(userPart)
                         .with(req -> { req.setMethod("PUT"); return req; }))
                 .andExpect(status().isForbidden());
 
-        // ไม่พบ
         when(perm.isSelf(55L)).thenReturn(true);
         when(svc.get(55L)).thenReturn(null);
         mockMvc.perform(multipart("/api/users/55").file(userPart)
@@ -307,7 +306,6 @@ class UserControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(status().reason("User not found"));
 
-        // สำเร็จ และเปลี่ยนรูป
         var existing = user(55, "old@x.com", "Old", "07", "http://old/av.png", "http://old/qr.png");
         when(svc.get(55L)).thenReturn(existing);
         when(storage.save(any(), eq("avatars"), eq("user-55"), any())).thenReturn("http://files/av-55.png");
@@ -315,7 +313,6 @@ class UserControllerTest {
         when(svc.update(any(User.class))).thenAnswer((Answer<User>) inv -> inv.getArgument(0));
 
         MockMultipartFile avatar = new MockMultipartFile("avatar", "a.png", "image/png", new byte[]{1});
-        // 🔧 ชื่อพาร์ทฝั่ง Controller ใช้ "qr" (ไม่ใช่ "qrCode")
         MockMultipartFile qr     = new MockMultipartFile("qr", "q.png", "image/png", new byte[]{2});
 
         mockMvc.perform(multipart("/api/users/55")
@@ -325,7 +322,6 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.avatarUrl").value("http://files/av-55.png"))
                 .andExpect(jsonPath("$.qrCodeUrl").value("http://files/qr-55.png"));
     }
-
 
     // ---------- DELETE /api/users/{id} (admin or self) ----------
     @Test

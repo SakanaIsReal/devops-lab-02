@@ -1,6 +1,6 @@
 
 package com.smartsplit.smartsplitback.controller;
-
+import org.springframework.dao.DataIntegrityViolationException;
 import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.model.dto.UserDto;
 import com.smartsplit.smartsplitback.model.dto.UserPublicDto;
@@ -16,7 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.smartsplit.smartsplitback.model.Role;
-
+import com.smartsplit.smartsplitback.model.dto.PasswordUpdateRequest;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.smartsplit.smartsplitback.model.dto.UserCreateRequest;
@@ -79,41 +79,27 @@ public class UserController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public UserDto create(
-            @Parameter(
-                    description = "User JSON payload",
-                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = UserCreateRequest.class)))
             @RequestPart("user") UserCreateRequest in,
-
-            @Parameter(description = "Avatar image",
-                    content = @Content(schema = @Schema(type = "string", format = "binary")))
             @RequestPart(value = "avatar", required = false) MultipartFile avatar,
-
-            @Parameter(description = "QR image",
-                    content = @Content(schema = @Schema(type = "string", format = "binary")))
             @RequestPart(value = "qrCode", required = false) MultipartFile qrCode,
-
             HttpServletRequest req) {
 
-        // ต้องมี password ไม่งั้นตอบ 400 (ป้องกัน DB not-null ชน)
         if (in.password() == null || in.password().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "password is required");
         }
 
         var u = new User();
-        u.setEmail(in.email());
+        u.setEmail(in.email() == null ? null : in.email().trim().toLowerCase());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
-        // NOTE: ใช้ {noop} สำหรับทดสอบ ถ้ามี PasswordEncoder ให้เปลี่ยนเป็น encoder.encode(...)
-        u.setPasswordHash("{noop}" + in.password());
-        if (in.role() != null) {
-            u.setRole(Role.fromCode(in.role()));
-        } else {
-            u.setRole(Role.USER);
-        }
+        u.setPasswordHash(svc.encodePassword(in.password()));
+        if (in.role() != null) u.setRole(Role.fromCode(in.role())); else u.setRole(Role.USER);
 
-        // เซฟก่อนเพื่อให้ได้ ID ไปตั้งชื่อไฟล์
-        u = svc.create(u);
+        try {
+            u = svc.create(u);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
+        }
 
         if (avatar != null && !avatar.isEmpty()) {
             String url = storage.save(avatar, "avatars", "user-" + u.getId(), req);
@@ -138,22 +124,22 @@ public class UserController {
         }
 
         var u = new User();
-        u.setEmail(in.email());
+        u.setEmail(in.email() == null ? null : in.email().trim().toLowerCase());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
         u.setAvatarUrl(in.avatarUrl());
         u.setQrCodeUrl(in.qrCodeUrl());
-        // TODO: เปลี่ยนเป็น passwordEncoder.encode(in.password()) ถ้ามี
-        u.setPasswordHash("{noop}" + in.password());
+        u.setPasswordHash(svc.encodePassword(in.password()));
+        if (in.role() != null) u.setRole(Role.fromCode(in.role())); else u.setRole(Role.USER);
 
-        if (in.role() != null) {
-            u.setRole(Role.fromCode(in.role()));
-        } else {
-            u.setRole(Role.USER);
+        try {
+            return toDto(svc.create(u));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
         }
-
-        return toDto(svc.create(u));
     }
+
+
 
 
     @PreAuthorize("@perm.isAdmin() || @perm.isSelf(#id)")
@@ -167,6 +153,10 @@ public class UserController {
         if (in.phone()     != null) u.setPhone(in.phone());
         if (in.avatarUrl() != null) u.setAvatarUrl(in.avatarUrl());
         if (in.qrCodeUrl() != null) u.setQrCodeUrl(in.qrCodeUrl());
+
+        if (perm.isAdmin() && in.roleCode() != null) {
+            u.setRole(Role.fromCode(in.roleCode()));
+        }
 
         return toDto(svc.update(u));
     }
@@ -199,6 +189,9 @@ public class UserController {
         if (in.email()    != null) u.setEmail(in.email());
         if (in.userName() != null) u.setUserName(in.userName());
         if (in.phone()    != null) u.setPhone(in.phone());
+        if (perm.isAdmin() && in.roleCode() != null) {
+            u.setRole(Role.fromCode(in.roleCode()));
+        }
 
         if (avatar != null && !avatar.isEmpty()) {
             storage.deleteByUrl(u.getAvatarUrl());
@@ -226,7 +219,37 @@ public class UserController {
         svc.delete(id);
     }
 
-    // ====== mappers ======
+    @PreAuthorize("@perm.isSelf(#id)")
+    @PatchMapping("/{id}/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changeOwnPassword(@PathVariable Long id, @RequestBody PasswordUpdateRequest req) {
+        if (req == null || req.newPassword() == null || req.newPassword().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "newPassword is required");
+        }
+        var u = svc.get(id);
+        if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        if (req.currentPassword() == null || req.currentPassword().isBlank() ||
+                !svc.passwordMatches(req.currentPassword(), u.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current password is incorrect");
+        }
+        u.setPasswordHash(svc.encodePassword(req.newPassword()));
+        svc.update(u);
+    }
+
+    // (B) แอดมินรีเซ็ตรหัสของใครก็ได้ (ไม่ต้องมี currentPassword)
+    @PreAuthorize("@perm.isAdmin()")
+    @PutMapping("/{id}/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void adminResetPassword(@PathVariable Long id, @RequestBody PasswordUpdateRequest req) {
+        if (req == null || req.newPassword() == null || req.newPassword().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "newPassword is required");
+        }
+        var u = svc.get(id);
+        if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        u.setPasswordHash(svc.encodePassword(req.newPassword()));
+        svc.update(u);
+    }
+
     private static UserDto toDto(User u) {
         return new UserDto(
                 u.getId(),
@@ -234,7 +257,8 @@ public class UserController {
                 u.getUserName(),
                 u.getPhone(),
                 u.getAvatarUrl(),
-                u.getQrCodeUrl()
+                u.getQrCodeUrl(),
+                u.getRole() == null ? null : u.getRole().code()
         );
     }
 
