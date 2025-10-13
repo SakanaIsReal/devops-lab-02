@@ -1,9 +1,8 @@
 // Import necessary modules
 import React, { useState } from "react";
-import { useAuth } from "../contexts/AuthContext"; // Our custom hook!
-import { Input } from "./Input"; // Our new reusable component
+import { useAuth } from "../contexts/AuthContext";
+import { Input } from "./Input";
 import { useNavigate } from "react-router-dom";
-
 import logo from "../assets/logo.png";
 
 // The main LoginForm component
@@ -23,8 +22,8 @@ export const LoginForm: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prevState) => ({
-      ...prevState, // Spread the previous state
-      [name]: value, // Update the specific field that changed
+      ...prevState,
+      [name]: value,
     }));
     // Clear errors when the user starts typing again
     if (error) setError(null);
@@ -32,29 +31,40 @@ export const LoginForm: React.FC = () => {
 
   // 4. Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); // Prevent the browser from refreshing the page
-    setError(null); // Reset any previous errors
+    e.preventDefault();
+    if (isLoading) return; // Prevent multiple submissions
+    
+    setError(null);
 
     // Basic client-side validation
-    if (!formData.email || !formData.password) {
+    if (!formData.email.trim() || !formData.password.trim()) {
       setError("Please fill in all fields");
       return;
     }
 
     try {
-      // 5. Call the login function from our context
-      // This is an async operation that we `await`
       await login(formData.email, formData.password);
-      // If login is successful, our AuthContext will update the `user` state.
-      // We don't need to do anything else here. A redirect can be handled by a router (next step!).
-      console.log("LoginForm: Login successful!");
-    } catch (err) {
-      // 6. Handle errors from the mock API / context
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred during login."
-      );
+      
+      // Navigation after successful login
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 50);
+      
+    } catch (err: any) {
+      console.error("Login error details:", err);
+      
+      // Enhanced error handling
+      if (err?.response?.status === 401) {
+        setError("Invalid email or password");
+      } else if (err?.message?.includes("401")) {
+        setError("Invalid email or password");
+      } else if (err?.response?.status >= 500) {
+        setError("Server error. Please try again later.");
+      } else if (err.message) {
+        setError(err.message);
+      } else {
+        setError("Login failed. Please try again.");
+      }
     }
   };
 
@@ -63,9 +73,10 @@ export const LoginForm: React.FC = () => {
       onSubmit={handleSubmit}
       className="flex flex-col gap-4 p-6 bg-white rounded-xl shadow-md w-full max-w-md"
     >
-        <div className="flex justify-center">
+      <div className="flex justify-center">
         <img src={logo} alt="Company Logo" className="w-48 h-48" />
-    </div>
+      </div>
+      
       <h2 className="text-2xl font-bold text-left text-gray-800">Log In</h2>
 
       {/* Conditionally show general error message */}
@@ -81,7 +92,7 @@ export const LoginForm: React.FC = () => {
         value={formData.email}
         onChange={handleInputChange}
         placeholder="user@example.com"
-        disabled={isLoading} // Disable while request is in flight
+        disabled={isLoading}
         required
       />
 
@@ -92,21 +103,20 @@ export const LoginForm: React.FC = () => {
         value={formData.password}
         onChange={handleInputChange}
         placeholder="Your password"
-        disabled={isLoading} // Disable while request is in flight
+        disabled={isLoading}
         required
       />
 
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={isLoading} // Disable while request is in flight
+        disabled={isLoading}
         className={`mt-2 py-2 px-4 rounded-lg font-medium text-white transition-colors ${
           isLoading
-            ? "bg-gray-400 cursor-not-allowed" // Styles when loading
-            : "bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2" // Styles when active
+            ? "bg-gray-400 cursor-not-allowed"
+            : "bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         }`}
       >
-        {/* Change button text based on loading state */}
         {isLoading ? "Logging in..." : "Log In"}
       </button>
 
@@ -128,7 +138,7 @@ export const LoginForm: React.FC = () => {
         Hint: Use email:{" "}
         <span className="font-mono bg-black text-white">user@example.com</span>{" "}
         and password:{" "}
-        <span className="font-mono bg-black text-white"> gg </span>
+        <span className="font-mono bg-black text-white">gg</span>
       </p>
     </form>
   );

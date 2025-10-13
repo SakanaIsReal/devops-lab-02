@@ -17,7 +17,7 @@ public class ExpenseSettlementService {
     private final ExpensePaymentRepository payments;
 
     public ExpenseSettlementService(ExpenseItemShareRepository shares,
-                                    ExpensePaymentRepository payments) {
+            ExpensePaymentRepository payments) {
         this.shares = shares;
         this.payments = payments;
     }
@@ -49,8 +49,10 @@ public class ExpenseSettlementService {
         var paid = paidForUser(expenseId, userId);
         boolean settled = paid.compareTo(owed) >= 0;
         BigDecimal remaining = owed.subtract(paid);
-        if (remaining.signum() < 0) remaining = BigDecimal.ZERO;
-        return new com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto(expenseId, userId, owed, paid, settled, remaining);
+        if (remaining.signum() < 0)
+            remaining = BigDecimal.ZERO;
+        return new com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto(expenseId, userId, owed, paid, settled,
+                remaining);
     }
 
     @Transactional(readOnly = true)

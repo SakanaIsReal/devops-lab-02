@@ -16,6 +16,7 @@ const CircleBackButton: React.FC<CircleBackButtonProps> = ({
     <button
       onClick={onClick}
       className={`
+        w-10 m-4
         flex items-center justify-start p-3 rounded-full mb-4
         bg-white hover:bg-gray-50 active:bg-gray-100
         transition-colors duration-200

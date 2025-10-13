@@ -3,16 +3,16 @@ import React, { useState } from "react";
 import { Input } from "./Input";
 import logo from "../assets/logo.png";
 import { useNavigate } from "react-router-dom";
-import { mockSignUpApi } from "../utils/mockApi";
+import { signUpApi } from "../utils/api";
 import { useAuth } from "../contexts/AuthContext";
 
 export const SignUpForm: React.FC = () => {
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
+    userName: "", // Changed from firstName/lastName to userName
     email: "",
     password: "",
-    confirmPassword: "",
+    phone: "", // Added phone field
+    confirmPassword: "", // Only for client-side validation
   });
   const [error, setError] = useState<string | null>(null);
   const { login, isLoading } = useAuth();
@@ -31,14 +31,9 @@ export const SignUpForm: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    if (
-      !formData.firstName ||
-      !formData.lastName ||
-      !formData.email ||
-      !formData.password ||
-      !formData.confirmPassword
-    ) {
-      setError("Please fill in all fields");
+    // Validation for required API fields only
+    if (!formData.userName || !formData.email || !formData.password) {
+      setError("Please fill in all required fields");
       return;
     }
 
@@ -48,9 +43,17 @@ export const SignUpForm: React.FC = () => {
     }
 
     try {
-      await mockSignUpApi(formData.firstName, formData.lastName, formData.email, formData.password);
-      // Log in with a user that is known to exist in the mock API
-      await login("user@example.com", "gg");
+      // Only send the fields that the API expects
+      await signUpApi(formData.userName, formData.email, formData.password, formData.phone);
+      
+      // Log in with the new credentials
+      await login(formData.email, formData.password);
+      
+      // Navigate after successful signup and login
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 50);
+      
     } catch (err) {
       setError(
         err instanceof Error
@@ -75,23 +78,12 @@ export const SignUpForm: React.FC = () => {
       )}
 
       <Input
-        label="First Name"
+        label="Username"
         type="text"
-        name="firstName"
-        value={formData.firstName}
+        name="userName"
+        value={formData.userName}
         onChange={handleInputChange}
-        placeholder="John"
-        disabled={isLoading}
-        required
-      />
-
-      <Input
-        label="Last Name"
-        type="text"
-        name="lastName"
-        value={formData.lastName}
-        onChange={handleInputChange}
-        placeholder="Doe"
+        placeholder="johndoe"
         disabled={isLoading}
         required
       />
@@ -105,6 +97,16 @@ export const SignUpForm: React.FC = () => {
         placeholder="user@example.com"
         disabled={isLoading}
         required
+      />
+
+      <Input
+        label="Phone (Optional)"
+        type="tel"
+        name="phone"
+        value={formData.phone}
+        onChange={handleInputChange}
+        placeholder="+1234567890"
+        disabled={isLoading}
       />
 
       <Input

@@ -1,0 +1,32 @@
+name: Build Docker Compose
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Create .env file dynamically
+      - name: Create .env file
+        run: |
+          cat <<EOF > .env
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+          APP_JWT_SECRET=${{ secrets.APP_JWT_SECRET }}
+          APP_JWT_EXPIRATION_SECONDS=${{ secrets.APP_JWT_EXPIRATION_SECONDS }}
+          APP_HOST_PORT=${{ secrets.APP_HOST_PORT }}
+          MYSQL_HOST_PORT=${{ secrets.MYSQL_HOST_PORT }}
+          SPRING_DATASOURCE_URL=${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DATASOURCE_USERNAME=${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD=${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+          EOF
+
+      - name: Build Docker Compose
+        run: |
+          docker compose --env-file .env build

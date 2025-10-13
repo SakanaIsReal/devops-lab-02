@@ -6,5 +6,8 @@ public record AuthResponse(
         Long   userId,
         String email,
         String userName,
-        int    role
+        int    role,
+        String phone,
+        String avatarUrl,
+        String qrCodeUrl
 ) {}

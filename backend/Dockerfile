@@ -14,6 +14,10 @@ ENV SPRING_PROFILES_ACTIVE=prod
 WORKDIR /app
 # สร้าง user ไม่ใช่ root
 RUN addgroup -S app && adduser -S app -G app
+
+RUN mkdir /app/uploads
+RUN chown -R app:app /app/uploads
+
 USER app
 
 COPY --from=build /app/target/*.jar /app/app.jar

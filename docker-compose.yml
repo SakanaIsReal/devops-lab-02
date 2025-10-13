@@ -1,5 +1,4 @@
-name: smartsplit-back
-
+version: '3.8'
 services:
   db:
     image: mysql:8
@@ -11,13 +10,12 @@ services:
     volumes:
       - dbdata:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$${MYSQL_ROOT_PASSWORD}"]
       interval: 20s
       timeout: 5s
       retries: 10
     restart: always
 
-  # job สร้าง DB ถ้ายังไม่มี (รันครั้งเดียวแล้วจบ)
   db-init:
     image: mysql:8
     depends_on:
@@ -29,14 +27,14 @@ services:
     entrypoint: [ "sh", "-c" ]
     command:
       - >
-        mysql -h db -uroot -p"$$MYSQL_ROOT_PASSWORD"
-        -e "CREATE DATABASE IF NOT EXISTS \`$$MYSQL_DATABASE\`
+        mysql -h db -uroot -p"$${MYSQL_ROOT_PASSWORD}"
+        -e "CREATE DATABASE IF NOT EXISTS 
             CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
     restart: "no"
 
-  api:
-    build: .
-    image: smartsplit-back:prod
+  backend:
+    build:
+      context: ./backend
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -53,9 +51,16 @@ services:
       - "8081:8081"
     volumes:
       - uploads_data:/app/uploads
-
     restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
 
 volumes:
   dbdata:
-
+  uploads_data:
