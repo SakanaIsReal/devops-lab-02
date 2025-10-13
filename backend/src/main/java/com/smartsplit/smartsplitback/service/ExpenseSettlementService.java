@@ -32,10 +32,11 @@ public class ExpenseSettlementService {
             if (v != null) {
                 sum = sum.add(v);
             }
-            // ไม่คำนวณเปอร์เซ็นต์แล้ว
+            
         }
         return sum;
     }
+
 
     @Transactional(readOnly = true)
     public BigDecimal paidForUser(Long expenseId, Long userId) {

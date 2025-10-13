@@ -1,3 +1,4 @@
+// com.smartsplit.smartsplitback.model.dto.UserDto
 package com.smartsplit.smartsplitback.model.dto;
 
 public record UserDto(
@@ -6,5 +7,6 @@ public record UserDto(
         String userName,
         String phone,
         String avatarUrl,
-        String qrCodeUrl
+        String qrCodeUrl,
+        Integer roleCode 
 ) {}

@@ -36,15 +36,12 @@ class UserControllerIT extends BaseIntegrationTest {
     long userId;
     long otherId;
 
-   
-
     private String jwtFor(long uid, int roleCode) {
         Map<String, Object> claims = new HashMap<>();
         claims.put(JwtService.CLAIM_UID, uid);
         claims.put(JwtService.CLAIM_ROLE, roleCode);
-       
         String subject = "uid:" + uid;
-        return jwtService.generate(subject, claims, 3600); 
+        return jwtService.generate(subject, claims, 3600);
     }
 
     private RequestPostProcessor asAdmin(long id) {
@@ -114,7 +111,6 @@ class UserControllerIT extends BaseIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("me@example.com"));
 
-        // ไม่มี header → 401
         mvc.perform(get(BASE + "/me"))
                 .andExpect(status().isUnauthorized());
     }
@@ -130,58 +126,73 @@ class UserControllerIT extends BaseIntegrationTest {
     // ---------- CREATE ----------
 
     @Test
-    @DisplayName("POST (JSON) /api/users -> ปัจจุบัน API ยังไม่ตั้ง passwordHash ใน Entity ⇒ 4xx")
-    void create_user_json_should_fail_until_password_supported() throws Exception {
-        var req = """
-            {
-              "email": "newuser@example.com",
-              "userName": "newbie",
-              "phone": "090-000-0000",
-              "role": 1
-            }""";
+    @DisplayName("POST (JSON) /api/users -> USER ห้าม, ADMIN สำเร็จเมื่อระบุ password และกำหนด role ได้")
+    void create_user_json_permissions_and_success() throws Exception {
+        String reqMissingPassword = """
+            {"email":"newuser@example.com","userName":"newbie","phone":"090-000-0000","role":1}
+            """;
 
-        // ADMIN → 4xx (เช่น 400) เพราะ passwordHash จะเป็น null
         mvc.perform(post(BASE)
                         .with(asAdmin(adminId))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(req))
-                .andExpect(status().is4xxClientError());
+                        .content(reqMissingPassword))
+                .andExpect(status().isBadRequest());
 
-        // USER → 403 (นโยบายสิทธิ์)
         mvc.perform(post(BASE)
                         .with(asUser(userId))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(req))
+                        .content(reqMissingPassword))
                 .andExpect(status().isForbidden());
+
+        String reqOk = """
+            {"email":"newuser@example.com","userName":"newbie","phone":"090-000-0000","password":"pass123","role":1}
+            """;
+
+        mvc.perform(post(BASE)
+                        .with(asAdmin(adminId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reqOk))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.email").value("newuser@example.com"));
     }
 
     @Test
-    @DisplayName("POST (multipart) /api/users -> ปัจจุบันยังไม่เซ็ต passwordHash ใน Entity ⇒ 4xx")
-    void create_user_multipart_should_fail_until_password_supported() throws Exception {
-        var userJson = """
+    @DisplayName("POST (multipart) /api/users -> USER ห้าม, ADMIN สำเร็จเมื่อระบุ password และไฟล์อัปโหลด")
+    void create_user_multipart_permissions_and_success() throws Exception {
+        byte[] userJsonMissingPwd = """
             {"email":"imguser@example.com","userName":"img","role":1}
             """.getBytes(StandardCharsets.UTF_8);
 
-        var userPart = new MockMultipartFile(
-                "user", "user.json", MediaType.APPLICATION_JSON_VALUE, userJson);
+        var userPartMissingPwd = new MockMultipartFile(
+                "user", "user.json", MediaType.APPLICATION_JSON_VALUE, userJsonMissingPwd);
 
+        mvc.perform(multipart(BASE)
+                        .file(userPartMissingPwd)
+                        .with(asAdmin(adminId)))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(multipart(BASE)
+                        .file(userPartMissingPwd)
+                        .with(asUser(userId)))
+                .andExpect(status().isForbidden());
+
+        byte[] userJsonOk = """
+            {"email":"imguser@example.com","userName":"img","password":"pass123","role":1}
+            """.getBytes(StandardCharsets.UTF_8);
+        var userPartOk = new MockMultipartFile(
+                "user", "user.json", MediaType.APPLICATION_JSON_VALUE, userJsonOk);
         var avatar = new MockMultipartFile(
                 "avatar", "a.png", MediaType.IMAGE_PNG_VALUE, new byte[]{1,2,3});
-
         var qrCode = new MockMultipartFile(
                 "qrCode", "q.png", MediaType.IMAGE_PNG_VALUE, new byte[]{4,5,6});
 
-        // ADMIN → 4xx เพราะ not-null ของ passwordHash
         mvc.perform(multipart(BASE)
-                        .file(userPart).file(avatar).file(qrCode)
+                        .file(userPartOk).file(avatar).file(qrCode)
                         .with(asAdmin(adminId)))
-                .andExpect(status().is4xxClientError());
-
-        // USER → 403 (นโยบายสิทธิ์)
-        mvc.perform(multipart(BASE)
-                        .file(userPart)
-                        .with(asUser(userId)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.email").value("imguser@example.com"));
     }
 
     // ---------- UPDATE ----------
@@ -253,10 +264,10 @@ class UserControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/users (JSON) -> duplicate email -> 4xx")
+    @DisplayName("POST /api/users (JSON) -> duplicate email -> 409/4xx (ต้องระบุ password ด้วย)")
     void create_duplicate_email() throws Exception {
-        var req = """
-            {"email":"me@example.com","userName":"dup","role":1}
+        String req = """
+            {"email":"me@example.com","userName":"dup","password":"pass123","role":1}
             """;
 
         mvc.perform(post(BASE)
@@ -265,5 +276,4 @@ class UserControllerIT extends BaseIntegrationTest {
                         .content(req))
                 .andExpect(status().is4xxClientError());
     }
-
 }
