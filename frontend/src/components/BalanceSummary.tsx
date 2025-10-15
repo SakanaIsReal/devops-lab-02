@@ -67,9 +67,8 @@ export default function BalanceSummary() {
           <p className="text-2xl font-bold text-green-500">${balanceSummary ? balanceSummary.youAreOwedTotal.toFixed(2) : '0.00'}</p>
         </div>
       </div>
-
-      {/* Tabs */}
-      <div className="flex space-x-2">
+      {/* Tabs */} {/*comment Tabs to make All,This week,This month disappear*/}
+      {/* <div className="flex space-x-2">
         {["All", "This Week", "This Month"].map((tab) => (
           <button
             key={tab}
@@ -83,7 +82,7 @@ export default function BalanceSummary() {
             {tab}
           </button>
         ))}
-      </div>
+      </div> */}
 
       {/* Transactions */}
       <div className="space-y-3">
