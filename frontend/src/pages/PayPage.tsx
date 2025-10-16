@@ -25,7 +25,7 @@ const PayPage: React.FC = () => {
       const checkPendingPayment = async () => {
         try {
           // Check if user already has a pending payment for this expense
-          const hasPending = await hasPendingPayment(Number(expenseId), Number(userId));
+          const hasPending = await hasPendingPayment(Number(expenseId), Number(currentUser.id));
           setHasPending(hasPending);
           
           if (hasPending) {
