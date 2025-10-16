@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: smartsplit
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: sakanaisreal/smartsplit-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql:3306/smartsplit-db"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "root"
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_ROOT_PASSWORD
+        - name: APP_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: APP_JWT_SECRET
+        - name: APP_JWT_EXPIRATION_SECONDS
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_JWT_EXPIRATION_SECONDS
+        - name: SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE
+        - name: SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE
+        volumeMounts:
+        - name: uploads-storage
+          mountPath: /app/uploads
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: uploads-storage
+        persistentVolumeClaim:
+          claimName: uploads-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
