@@ -99,7 +99,13 @@ export const getExpenseSettlements = async (expenseId: string): Promise<any[]> =
     const response = await api.get(`/api/expenses/${expenseId}/settlement`);
     return response.data;
 };
-
+export const getExpenseSettlementsUserID = async (expenseId: string, userId : String): Promise<any[]> => {
+    const response = await api.get(`/api/expenses/${expenseId}/settlement/${userId}`);
+    if (Array.isArray(response.data)) {
+        return response.data;
+    }
+    return [response.data];
+};
 // Update your ../utils/api file
 
 export const getGroupDetails = async (groupId: string): Promise<Group> => {
@@ -108,18 +114,25 @@ export const getGroupDetails = async (groupId: string): Promise<Group> => {
 };
 
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
-    const response = await api.get(`/api/expenses/group/${groupId}`);
+  const response = await api.get(`/api/expenses/group/${groupId}`);
+  const expenses = response.data;
 
-    // Transform the API response to match your frontend needs
-    const expenses = response.data;
-    return expenses.map((expense: any) => ({
+  const transactions = await Promise.all(
+    expenses.map(async (expense: any) => {
+      const user_response = await api.get(`/api/users/${expense.payerUserId}`);
+      const username = user_response.data.userName;
+
+      return {
         ...expense,
-        // Map API fields to frontend expected fields
         name: expense.title,
-        payer: `User ${expense.payerUserId}`, // You might need to fetch actual user names
+        payer: `${username}`,
         date: new Date(expense.createdAt).toLocaleDateString(),
-        status: expense.status.toLowerCase() as 'pending' | 'completed' // Map status
-    }));
+        status: expense.status.toLowerCase() as 'pending' | 'completed',
+      };
+    })
+  );
+
+  return transactions;
 };
 
 
@@ -587,19 +600,23 @@ export const submitPayment = async (
 
 // Update the existing getPaymentDetails function to use the real API
 export const getPaymentDetails = async (expenseId: string, userId: string): Promise<PaymentDetails> => {
-    // First, get the settlement details from the real API
+    // First, get the settlement details for the user who needs to pay
     const settlement = await getSettlementDetails(Number(expenseId), Number(userId));
+
+    // Then, get the expense details to find the payer
+    const expenseDetails = await getBillDetails(expenseId);
+    const payerId = expenseDetails.payerUserId;
     
-    // Then, get user information to populate payer name and QR code
-    let payerName = `User ${settlement.userId}`;
+    // Then, get user information of the payer to populate payer name and QR code
+    let payerName = `User ${payerId}`;
     let qrCodeUrl = '';
     
     try {
-        const userInfo = await getUserInformation(settlement.userId.toString());
-        payerName = userInfo.name || userInfo.userName || payerName;
-        qrCodeUrl = userInfo.qrCodeUrl || userInfo.qrCode || '';
+        const payerInfo = await getUserInformation(payerId.toString());
+        payerName = payerInfo.name || payerInfo.userName || payerName;
+        qrCodeUrl = payerInfo.qrCodeUrl || payerInfo.qrCode || '';
     } catch (error) {
-        console.error("Error fetching user info:", error);
+        console.error("Error fetching payer info:", error);
         // Use default values if user info fetch fails
         qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
     }
