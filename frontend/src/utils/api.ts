@@ -90,10 +90,12 @@ export const searchUsers = async (query: string): Promise<any[]> => {
 
 
 
-export const getBillDetails = async (billId: string): Promise<any> => {
-    const response = await api.get(`/api/bills/${billId}`);
-    return response.data;
+// แทนที่ฟังก์ชันเดิม
+export const getBillDetails = async (expenseId: string): Promise<any> => {
+  const res = await api.get(`/api/expenses/${expenseId}`);
+  return res.data;
 };
+
 
 export const getExpenseSettlements = async (expenseId: string): Promise<any[]> => {
     const response = await api.get(`/api/expenses/${expenseId}/settlement`);
@@ -446,14 +448,15 @@ const deriveName = (u: any): string => {
   return (direct || parts || '').toString();
 };
 
-// ดึงโปรไฟล์ users ตาม ids (พยายามหลายรูปแบบ เผื่อ BE แต่ละทรง)
 export const fetchUserProfiles = async (ids: number[]) => {
-  const uniq = Array.from(new Set(ids.filter((n) => Number.isFinite(n))));
+  const uniq: number[] = Array.from(new Set(
+    (ids ?? []).map(n => Number(n)).filter(n => Number.isFinite(n))
+  ));
+
   const byId = new Map<number, any>();
 
-  // 1) POST /api/users/batch  { ids: [...] }
-  try {
-    const { data } = await api.post('/api/users/batch', { ids: uniq });
+  // helper: รวม array จากรูปแบบ payload ต่าง ๆ
+  const collect = (data: any) => {
     const arr = Array.isArray(data) ? data
       : Array.isArray(data?.users) ? data.users
       : Array.isArray(data?.items) ? data.items
@@ -461,50 +464,100 @@ export const fetchUserProfiles = async (ids: number[]) => {
       : [];
     arr.forEach((p: any) => {
       const id = Number(p?.id ?? p?.userId);
-      if (Number.isFinite(id)) byId.set(id, p);
+      if (Number.isFinite(id) && !byId.has(id)) byId.set(id, p);
     });
-  } catch (_) {}
+  };
 
-  // 2) GET /api/users?ids=1,2,3
+  // ---- 1) พยายาม GET แบบรวมก่อน (หลีกเลี่ยง 405) ----
+  // /api/users?ids=1,2,3
+  try {
+    const { data } = await api.get('/api/users', { params: { ids: uniq.join(',') } });
+    collect(data);
+  } catch (err: any) {
+    if (err?.response?.status !== 403) {
+      // 403 = Forbidden -> ข้ามไป fallback ทันที, อื่น ๆ เพิกเฉยให้ลองวิธีต่อไป
+      // console.warn('GET /api/users?ids=... failed:', err?.response?.status);
+    }
+  }
+
+  // /api/users/batch?ids=1,2,3
   if (byId.size < uniq.length) {
     try {
-      const { data } = await api.get('/api/users', { params: { ids: uniq.join(',') } });
-      const arr = Array.isArray(data) ? data
-        : Array.isArray(data?.users) ? data.users
-        : Array.isArray(data?.items) ? data.items
-        : Array.isArray(data?.data)  ? data.data
-        : [];
-      arr.forEach((p: any) => {
-        const id = Number(p?.id ?? p?.userId);
-        if (Number.isFinite(id) && !byId.has(id)) byId.set(id, p);
-      });
+      const { data } = await api.get('/api/users/batch', { params: { ids: uniq.join(',') } });
+      collect(data);
+    } catch (err: any) {
+      // ข้ามถ้า 403/405
+      // console.warn('GET /api/users/batch?ids=... failed:', err?.response?.status);
+    }
+  }
+
+  // /api/users?userIds=1,2,3  (บาง BE ใช้ชื่อนี้)
+  if (byId.size < uniq.length) {
+    try {
+      const { data } = await api.get('/api/users', { params: { userIds: uniq.join(',') } });
+      collect(data);
     } catch (_) {}
   }
 
-  // 3) Fallback: GET /api/users/:id ทีละตัว
+  // /api/users?ids[]=1&ids[]=2 (array param style)
+  if (byId.size < uniq.length) {
+    try {
+      const { data } = await api.get('/api/users', { params: { 'ids[]': uniq } });
+      collect(data);
+    } catch (_) {}
+  }
+
+  // ---- 2) POST เป็นทางเลือกสุดท้าย (บางระบบอาจรองรับ) ----
+  if (byId.size < uniq.length) {
+    try {
+      const { data } = await api.post('/api/users/batch', { ids: uniq });
+      collect(data);
+    } catch (_) {} // ถ้า 405/403 ก็ปล่อยผ่าน
+  }
+
+  // ---- 3) Fallback: GET /api/users/:id ทีละตัว ----
   if (byId.size < uniq.length) {
     for (const id of uniq) {
       if (byId.has(id)) continue;
       try {
         const { data } = await api.get(`/api/users/${id}`);
-        byId.set(id, data);
-      } catch (_) {}
+        if (data) byId.set(id, data);
+      } catch (_) {
+        // ถ้าคนใดคนหนึ่งพัง ก็ข้ามไป (ยังคงคืนข้อมูลคนอื่น ๆ ได้)
+      }
     }
   }
 
-  // สร้างแผนที่ id -> โปรไฟล์ normalize แล้ว
+  // ---- 4) Normalize เป็น Map<number, {id,name,email,phone,imageUrl}> ----
+  const pickName = (u: any): string => {
+    const direct =
+      u?.name ?? u?.userName ?? u?.username ?? u?.displayName ?? u?.fullName ?? '';
+    const parts = [u?.firstName, u?.lastName].filter(Boolean).join(' ');
+    const nested = u?.user ?? u?.profile ?? u?.account ?? {};
+    const nestedDirect =
+      nested?.name ?? nested?.userName ?? nested?.username ?? nested?.displayName ?? nested?.fullName ?? '';
+    const nestedParts = [nested?.firstName, nested?.lastName].filter(Boolean).join(' ');
+    return (String(direct || '').trim())
+        || (String(parts || '').trim())
+        || (String(nestedDirect || '').trim())
+        || (String(nestedParts || '').trim())
+        || '';
+  };
+
   const out = new Map<number, any>();
   byId.forEach((p, id) => {
     out.set(id, {
       id,
-      name: deriveName(p),
-      email: p?.email ?? '',
-      phone: p?.phone ?? '',
-      imageUrl: p?.avatarUrl ?? p?.imageUrl ?? '',
+      name: pickName(p),
+      email: p?.email ?? p?.user?.email ?? '',
+      phone: p?.phone ?? p?.user?.phone ?? '',
+      imageUrl: p?.avatarUrl ?? p?.imageUrl ?? p?.user?.avatarUrl ?? p?.user?.imageUrl ?? '',
     });
   });
+
   return out;
 };
+
 // utils/api.ts
 export const getBalanceSummary = async (): Promise<{ youOweTotal: number; youAreOwedTotal: number }> => {
     const response = await api.get('/api/me/balances/summary');
