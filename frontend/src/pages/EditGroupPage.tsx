@@ -19,6 +19,7 @@ const [ownerUserId, setOwnerUserId] = useState<number | string | undefined>(unde
 
   const [loading, setLoading] = useState(true);
   const [groupName, setGroupName] = useState('');
+  const [groupImageUrl, setGroupImageUrl] = useState<string | null>(null);
   const [participants, setParticipants] = useState<UIUser[]>([]);
     const [originalMemberIds, setOriginalMemberIds] = useState<number[]>([]); 
   const [saving, setSaving] = useState(false);  
@@ -27,6 +28,22 @@ const [ownerUserId, setOwnerUserId] = useState<number | string | undefined>(unde
   const [isSearching, setIsSearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      const previewUrl = URL.createObjectURL(file);
+      setGroupImageUrl(previewUrl);
+      console.log('Selected file:', file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
 
   // ---- helpers ----
   const mapMembers = (arr: any[]): UIUser[] =>
@@ -53,6 +70,7 @@ const didLoadRef = useRef(false);
       const g = stateGroup ?? await getGroupById(groupId);
       if (cancelled) return;
       setGroupName(g?.name ?? g?.groupName ?? '');
+      setGroupImageUrl(g?.coverImageUrl ?? g?.imageUrl ?? null);
 
       // โหลดสมาชิก
       let members = await getGroupMembers(groupId);
@@ -85,6 +103,7 @@ const didLoadRef = useRef(false);
       if (cancelled) return;
 
       setGroupName(g?.name ?? g?.groupName ?? '');
+      setGroupImageUrl(g?.coverImageUrl ?? g?.imageUrl ?? null);
 
       // ------ โหลดสมาชิกจาก API ------
       let members = await getGroupMembers(groupId);
@@ -161,7 +180,7 @@ const didLoadRef = useRef(false);
           name: u.userName ?? u.name ?? u.email ?? 'Unknown',
           email: u.email,
           phone: u.phone,
-          imageUrl: u.avatarUrl ?? u.imageUrl ?? null,
+          imageUrl: u.coverImageUrl ?? u.imageUrl ?? null,
         }))
         .filter(u => !participants.some(p => p.id === u.id));
         if (alive) setSearchResults(normalized);
@@ -191,10 +210,10 @@ const handleSave = async () => {
 
   setSaving(true);
   try {
-    // 1) อัปเดตชื่อกลุ่ม
-    await updateGroup(groupId, { name: groupName });
+    // 1) Update group details (name and coverFile)
+    await updateGroup(groupId, { name: groupName, coverFile: selectedFile });
 
-    // 2) คำนวณ diff สมาชิก
+    // 2) Calculate member diffs and update
     const currentIds = Array.from(new Set(
       participants.map(p => Number(p.id)).filter(n => Number.isFinite(n))
     ));
@@ -209,7 +228,7 @@ const handleSave = async () => {
     if (toAdd.length)    await addMembers(groupId, toAdd);
     if (toRemove.length) await removeMembers(groupId, toRemove);
 
-    // อัปเดต baseline เพื่อกัน re-sync ซ้ำตอนอยู่หน้าเดิม
+    // Update baseline to prevent re-sync
     setOriginalMemberIds(currentIds);
 
     navigate(`/group/${groupId}`);
@@ -253,6 +272,29 @@ const handleSave = async () => {
         <h1 className="text-2xl font-bold text-left my-4">Edit Group</h1>
 
         <div className="bg-white rounded-lg shadow-md p-6 w-full">
+          {/* ------- Group Profile Image ------- */}
+          <div className="flex flex-col items-center mb-4">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+              accept="image/*"
+            />
+            <img
+              src={groupImageUrl || 'https://placehold.co/128x128?text=Group'}
+              alt="Group"
+              className="w-32 h-32 rounded-full object-cover"
+            />
+            <button
+              onClick={handleUploadClick}
+              style={{ backgroundColor: '#122442' }}
+              className="mt-4 px-4 py-2 text-white font-semibold rounded-md"
+            >
+              Upload or update group profile
+            </button>
+          </div>
+
           {/* ------- ฟอร์มเดิมของคุณ วางไว้ตรงนี้ ------- */}
 
           {/* Group name */}
