@@ -91,7 +91,7 @@ export const searchUsers = async (query: string): Promise<any[]> => {
 
 
 export const getBillDetails = async (billId: string): Promise<any> => {
-    const response = await api.get(`/api/bills/${billId}`);
+    const response = await api.get(`/api/expenses/${billId}`);
     return response.data;
 };
 
