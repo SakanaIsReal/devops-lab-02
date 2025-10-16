@@ -6,6 +6,7 @@ import CircleBackButton from '../components/CircleBackButton';
 import { addMembers, removeMembers,getGroupById,fetchUserProfiles, updateGroup, setGroupMembers, getGroupMembers, searchUsers } from '../utils/api';
 import type { User } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { BottomNav } from '../components/BottomNav';
 type UIUser = { id: string; name: string; email?: string; phone?: string; imageUrl?: string | null };
 
 const EditGroupPage: React.FC = () => {
@@ -256,7 +257,7 @@ const handleSave = async () => {
 
   // ---------- UI (โครงเหมือน Create) ----------
   return (
-  <div className="min-h-screen bg-gray-100">
+  <div className="min-h-screen h-[150vh] bg-gray-100">
     <Navbar />
 
     {/* คอนเทนเนอร์หลักแบบชิดขอบบน */}
@@ -419,6 +420,8 @@ const handleSave = async () => {
         </div>
       </div>
     </div>
+          <BottomNav activeTab={'groups'}/>
+    
   </div>
 );
 };
