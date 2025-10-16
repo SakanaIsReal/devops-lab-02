@@ -126,7 +126,7 @@ const PayPage: React.FC = () => {
   // Show pending payment message if user already has a pending payment
   if (hasPending) {
     return (
-      <div className="min-h-screen bg-gray-100">
+      <div className="min-h-screen h-[120vh] bg-gray-100">
         <Navbar />
         <div className="p-4">
           <CircleBackButton onClick={() => navigate(-1)} />
