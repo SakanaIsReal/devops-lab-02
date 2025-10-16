@@ -8,7 +8,7 @@ import { BottomNav, NavTab } from '../components/BottomNav';
 import { useAuth } from '../contexts/AuthContext';
 
 const PayPage: React.FC = () => {
-  const { expenseId, userId } = useParams<{ expenseId: string; userId: string }>();
+  const { expenseId, userId: payerId } = useParams<{ expenseId: string; userId: string }>();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
@@ -21,7 +21,7 @@ const PayPage: React.FC = () => {
   const [pendingPaymentInfo, setPendingPaymentInfo] = useState<{amount: number, createdAt: string} | null>(null);
 
   useEffect(() => {
-    if (expenseId && userId && currentUser) {
+    if (expenseId && payerId && currentUser) {
       const checkPendingPayment = async () => {
         try {
           // Check if user already has a pending payment for this expense
@@ -32,7 +32,7 @@ const PayPage: React.FC = () => {
             // Get pending payment details to show to user
             const payments = await getExpensePayments(Number(expenseId));
             const userPendingPayment = payments.find(payment => 
-              payment.fromUserId === Number(userId) && payment.status === "PENDING"
+              payment.fromUserId === Number(currentUser.id) && payment.status === "PENDING"
             );
             
             if (userPendingPayment) {
@@ -43,7 +43,7 @@ const PayPage: React.FC = () => {
             }
           } else {
             // Only load payment details if no pending payment exists
-            const details = await getPaymentDetails(expenseId, userId);
+            const details = await getPaymentDetails(expenseId, currentUser.id);
             setPaymentDetails(details);
             setAmountPaid(details.amountToPay.toString());
           }
@@ -60,10 +60,10 @@ const PayPage: React.FC = () => {
       setError("Missing expense ID, user ID, or user not logged in");
       setLoading(false);
     }
-  }, [expenseId, userId, currentUser]);
+  }, [expenseId, payerId, currentUser]);
 
   const handlePay = async () => {
-    if (!expenseId || !userId || !amountPaid) {
+    if (!expenseId || !payerId || !amountPaid) {
       setError("Please fill in all required fields");
       return;
     }
@@ -90,7 +90,7 @@ const PayPage: React.FC = () => {
     try {
       await submitPayment(
         Number(expenseId),
-        Number(userId),
+        Number(currentUser!.id),
         paidAmount,
         paymentSlip
       );
