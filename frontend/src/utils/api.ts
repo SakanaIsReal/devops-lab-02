@@ -190,6 +190,7 @@ export const createExpenseApi = async (expenseData: {
     amount: number;
     type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
     title: string;
+    participants?: number[];
 }): Promise<any> => {
     const response = await api.post("/api/expenses", expenseData);
     return response.data;
