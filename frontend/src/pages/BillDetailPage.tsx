@@ -9,8 +9,8 @@ import type { BillDetail } from '../types';
 
 const getStatusStyle = (s: 'done' | 'pay' | 'check') =>
   s === 'done' ? { backgroundColor: '#52bf52' } :
-  s === 'pay'  ? { backgroundColor: '#0d78f2' } :
-                 { backgroundColor: '#efac4e' };
+    s === 'pay' ? { backgroundColor: '#0d78f2' } :
+      { backgroundColor: '#efac4e' };
 
 type NavState = {
   bill?: any;
@@ -48,10 +48,10 @@ export const BillDetailPage: React.FC = () => {
     const nav = location.state;
     if (!nav?.bill && !nav?.ui) { setBill(null); setLoading(true); return; }
 
-    const b  = nav.bill ?? {};
-    const ui = nav.ui  ?? {};
-    const title     = b.title ?? ui.title ?? 'Expense';
-    const amount    = Number(b.amount ?? ui.amount ?? 0);
+    const b = nav.bill ?? {};
+    const ui = nav.ui ?? {};
+    const title = b.title ?? ui.title ?? 'Expense';
+    const amount = Number(b.amount ?? ui.amount ?? 0);
     const createdAt = String(b.createdAt ?? ui.createdAt ?? '');
     const payerUserId = b.payerUserId ?? ui.payerUserId;
 
@@ -99,44 +99,50 @@ export const BillDetailPage: React.FC = () => {
 
   // โหลดจริงจาก API: expense + settlements + โปรไฟล์ → map เป็น members
   useEffect(() => {
-    if (!expenseId) return;
+    if (!expenseId || !user) return;
     let cancelled = false;
 
     (async () => {
       try {
         const exp: any = await getBillDetails(expenseId); // /api/expenses/:id
-        const title   = exp.title ?? exp.name ?? `Expense #${expenseId}`;
+        const title = exp.title ?? exp.name ?? `Expense #${expenseId}`;
         const dateStr = String(exp.createdAt ?? exp.date ?? '').slice(0, 10);
         const payerUserId = exp.payerUserId ?? exp.payerId ?? exp.payer?.id;
 
-        const settlements: any[] = await getExpenseSettlements(String(expenseId));
-        const ids = Array.from(new Set(
-          settlements.map(s => Number(s.userId)).filter(n => Number.isFinite(n))
-        ));
-        const profileMap = await fetchUserProfiles(ids); // Map<number, { id, name, imageUrl, ... }>
+        const isPayer = String(user.id) === String(payerUserId);
+
+        const allSettlements: any[] = await getExpenseSettlements(String(expenseId));
+
+        const settlements = isPayer
+            ? allSettlements.filter(s => String(s.userId) !== String(payerUserId)) // show others if payer
+            : allSettlements.filter(s => String(s.userId) === String(user.id)); // show self if not payer
+
+        const debtorIds = settlements.map(s => Number(s.userId)).filter(n => Number.isFinite(n));
+        const ids = Array.from(new Set([...debtorIds, Number(payerUserId)]));
+        const profileMap = await fetchUserProfiles(ids);
 
         const mappedMembers = settlements.map((s, idx) => {
-  const uid = Number(s.userId ?? s.memberId ?? s.user?.id ?? idx);
+          const uid = Number(s.userId ?? s.memberId ?? s.user?.id ?? idx);
 
-  const owed  = Number(s.owedAmount ?? s.owed ?? s.share ?? s.amount ?? 0);
-  const paid  = Number(s.paidAmount ?? s.paid ?? 0);
-  const remIn = s.remaining;
-  const remaining = Number(remIn != null ? remIn : (owed - paid));
+          const owed = Number(s.owedAmount ?? s.owed ?? s.share ?? s.amount ?? 0);
+          const paid = Number(s.paidAmount ?? s.paid ?? 0);
+          const remIn = s.remaining;
+          const remaining = Number(remIn != null ? remIn : (owed - paid));
 
-  const settledFlag =
-    (typeof s.settled === 'boolean' ? s.settled : undefined)
-    ?? (typeof s.status === 'string' ? s.status.toUpperCase() === 'SETTLED' : undefined)
-    ?? (remaining <= 0);
+          const settledFlag =
+            (typeof s.settled === 'boolean' ? s.settled : undefined)
+            ?? (typeof s.status === 'string' ? s.status.toUpperCase() === 'SETTLED' : undefined)
+            ?? (remaining <= 0);
 
-  const prof = profileMap.get(uid) || {};
-  return {
-    id: uid,
-    name: prof.name || `User #${uid}`,
-    avatar: prof.imageUrl || 'https://placehold.co/80x80?text=User',
-    amount: Math.max(0, remaining),
-    status: settledFlag ? ('done' as const) : ('pay' as const),
-  };
-});
+          const prof = profileMap.get(uid) || {};
+          return {
+            id: uid,
+            name: prof.name || `User #${uid}`,
+            avatar: prof.imageUrl || 'https://placehold.co/80x80?text=User',
+            amount: Math.max(0, remaining),
+            status: settledFlag ? ('done' as const) : ('pay' as const),
+          };
+        });
 
 
         const payerProfile = payerUserId != null ? profileMap.get(Number(payerUserId)) : undefined;
@@ -168,7 +174,7 @@ export const BillDetailPage: React.FC = () => {
     })();
 
     return () => { cancelled = true; };
-  }, [expenseId]);
+  }, [expenseId, user]);
 
   const handlePayClick = (status: 'done' | 'pay' | 'check', memberId?: number | string) => {
     if (status !== 'pay') return;
