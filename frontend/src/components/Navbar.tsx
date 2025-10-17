@@ -57,6 +57,7 @@ const Navbar = () => {
                 <MenuItem>
                   {({ focus }) => (
                     <button
+                      aria-label="Sign-out"
                       onClick={handleLogout}
                       className={`${
                         focus ? "bg-gray-100 text-gray-900" : "text-gray-700"
