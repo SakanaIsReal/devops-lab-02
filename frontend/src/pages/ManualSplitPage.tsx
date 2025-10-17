@@ -157,7 +157,8 @@ export default function ManualSplitPage() {
 
 
             alert("Expense successfully recorded!");
-            navigate(-1);
+            const billId = expense?.id ?? expense?.expenseId;
+            navigate(`/bill/${billId}`);
         } catch (error) {
 
             console.error("Failed to save expense", error);
