@@ -125,4 +125,5 @@ export interface Balance {
   expenseId: number;
   expenseTitle: string;
   remaining: number;
+  status: string;
 }
