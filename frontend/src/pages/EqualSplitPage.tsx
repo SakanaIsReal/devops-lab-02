@@ -189,10 +189,8 @@ export default function EqualSplitPage() {
                 );
             }
 
-            // ... โค้ดส่วนนำทางไปยังหน้า BillDetail ...
             const billId = expense?.id ?? expense?.expenseId;
-            if (!billId) { alert('สร้างบิลสำเร็จ แต่ไม่พบ billId'); return; }
-
+            alert("Expense successfully recorded!");
             const uiParticipants = participants
                 .filter(p => includedIds.includes(Number(p.id)))
                 .map(p => ({
