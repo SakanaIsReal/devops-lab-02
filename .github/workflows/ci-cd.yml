@@ -22,9 +22,11 @@ jobs:
       
     - name: Run Backend Unit Tests
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       run: |
         cd backend
-        mvn test
+        mvn test -Dapp.jwt.secret="${env:APP_JWT_SECRET}"
 
   build-and-push:
     runs-on: self-hosted
@@ -71,9 +73,11 @@ jobs:
         
     - name: Run Tests in Container
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       run: |
         $backendImage = "${{ env.BACKEND_IMAGE }}"
-        docker run --rm "${backendImage}:latest" mvn test
+        docker run --rm -e APP_JWT_SECRET="${env:APP_JWT_SECRET}" "${backendImage}:latest" mvn test
         
     - name: Build Frontend Image
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
