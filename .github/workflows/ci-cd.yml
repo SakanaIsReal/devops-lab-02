@@ -62,7 +62,7 @@ jobs:
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        npm install cypress@latest --save-dev
+        npm install cypress@12.17.4 --save-dev
         npx cypress verify
       
     - name: Start Frontend for E2E Tests
@@ -79,7 +79,7 @@ jobs:
       env:
         CYPRESS_BASE_URL: "http://localhost:3000"
       run: |
-        npx cypress run --browser chrome --headless
+        npx cypress run --config video=false
       
     - name: Upload Cypress Screenshots
       if: failure()

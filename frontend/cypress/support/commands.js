@@ -1,5 +1,5 @@
 // ***********************************************
-// This example commands.ts shows you how to
+// This example commands.js shows you how to
 // create various custom commands and overwrite
 // existing commands.
 //
@@ -7,13 +7,3 @@
 // commands please read more here:
 // https://on.cypress.io/custom-commands
 // ***********************************************
-
-declare global {
-  namespace Cypress {
-    interface Chainable {
-      // Add custom commands here if needed
-    }
-  }
-}
-
-export {};
