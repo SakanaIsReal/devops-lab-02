@@ -84,7 +84,7 @@ jobs:
           -e SPRING_PROFILES_ACTIVE=test `
           -e APP_JWT_SECRET="$jwtSecret" `
           "${backendImage}:latest" `
-          mvn verify -Dapp.jwt.secret=$jwtSecret -DskipUTs=true
+          mvn "-Dapp.jwt.secret=$jwtSecret" test
         
     - name: Build Frontend Image
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
