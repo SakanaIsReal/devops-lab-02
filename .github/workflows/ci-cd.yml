@@ -58,16 +58,17 @@ jobs:
       run: |
         npm test -- --watchAll=false --testEnvironment=jsdom
         
-    - name: Verify Cypress Installation
+    - name: Install Cypress
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
+        npm install cypress@12.17.4 --save-dev
         npx cypress verify
       
     - name: Start Frontend for E2E Tests
+      working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        cd frontend
         Start-Process npm -ArgumentList "start" -NoNewWindow -PassThru
         Write-Host "Waiting for frontend to start..."
         # Wait for the frontend to be ready by checking if the port is accessible
