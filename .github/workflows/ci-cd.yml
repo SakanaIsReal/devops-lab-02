@@ -28,7 +28,7 @@ jobs:
       run: |
         cd backend
         $jwtSecret = $env:APP_JWT_SECRET
-        mvn test -Dapp.jwt.secret=$jwtSecret -DskipITs=true
+        mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
 
   build-and-push:
     runs-on: self-hosted
