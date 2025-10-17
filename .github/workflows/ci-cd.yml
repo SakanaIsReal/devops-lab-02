@@ -32,6 +32,7 @@ jobs:
         Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
         Remove-Item package-lock.json -ErrorAction SilentlyContinue
         npm install
+        npm install --save-dev ts-jest @types/jest
         
     - name: Install Cypress
       working-directory: ./frontend
