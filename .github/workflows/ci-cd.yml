@@ -32,7 +32,8 @@ jobs:
         Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
         Remove-Item package-lock.json -ErrorAction SilentlyContinue
         npm install
-        npm install --save-dev ts-jest @types/jest
+        npm install --save react-router-dom@latest
+        npm install --save-dev @types/jest @testing-library/jest-dom @testing-library/react @testing-library/user-event
         
     - name: Install Cypress
       working-directory: ./frontend
