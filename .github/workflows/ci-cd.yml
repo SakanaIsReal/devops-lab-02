@@ -69,9 +69,30 @@ jobs:
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        $process = Start-Process npm -ArgumentList "start" -NoNewWindow -PassThru
+        Start-Process npm -ArgumentList "start" -NoNewWindow -PassThru
         Write-Host "Waiting for frontend to start..."
-        Start-Sleep -Seconds 30
+        # Wait for the frontend to be ready by checking if the port is accessible
+        $maxAttempts = 30
+        $attempts = 0
+        $ready = $false
+        while (-not $ready -and $attempts -lt $maxAttempts) {
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 1
+            if ($response.StatusCode -eq 200) {
+              $ready = $true
+              Write-Host "Frontend is ready!"
+            }
+          }
+          catch {
+            $attempts++
+            Write-Host "Waiting for frontend to be ready... Attempt: $attempts"
+            Start-Sleep -Seconds 2
+          }
+        }
+        if (-not $ready) {
+          Write-Error "Frontend failed to start after $maxAttempts attempts"
+          exit 1
+        }
         
     - name: Run Cypress E2E Tests
       working-directory: ./frontend
