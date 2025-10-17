@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Balance, Group, PaymentDetails, Settlement, Transaction, User, UserUpdateForm } from '../types';
+import { Balance, Group, PaymentDetails, Settlement, Transaction, User, UserUpdateForm, Payment } from '../types';
 
 export const getBalances = async (): Promise<Balance[]> => {
     const response = await api.get('/api/me/balances');
@@ -589,7 +589,7 @@ export const submitPayment = async (
     const formData = new FormData();
     
     // Add receipt file (required)
-    formData.append('recelpt', receiptFile); // Note: API expects 'recelpt' (typo in API)
+    formData.append('receipt', receiptFile); // Note: API expects 'recelpt' (typo in API)
     
     const response = await api.post(
         `/api/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
@@ -641,18 +641,6 @@ export const deleteGroup = async (groupId: string | number): Promise<any> => {
     return response.data;
 };
 
-// Add this interface to your types file
-export interface Payment {
-  id: number;
-  expenseId: number;
-  fromUserId: number;
-  amount: number;
-  status: "PENDING" | "VERIFIED" | "REJECTED";
-  createdAt: string;
-  verifiedAt: string | null;
-  receiptId: number | null;
-  receiptFileUrl: string | null;
-}
 
 // Add this function to your api.ts file
 export const getExpensePayments = async (expenseId: number): Promise<Payment[]> => {
@@ -672,4 +660,14 @@ export const hasPendingPayment = async (expenseId: number, userId: number): Prom
     console.error("Error checking pending payments:", error);
     return false;
   }
+};
+
+export const getPayment = async (expenseId: number, paymentId: number): Promise<Payment> => {
+    const response = await api.get(`/api/expenses/${expenseId}/payments/${paymentId}`);
+    return response.data;
+};
+
+export const updatePaymentStatus = async (expenseId: number, paymentId: number, status: 'VERIFIED' | 'REJECTED'): Promise<Payment> => {
+    const response = await api.put(`/api/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
+    return response.data;
 };

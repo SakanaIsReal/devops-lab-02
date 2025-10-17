@@ -28,6 +28,7 @@ import { BillDetailPage } from "./pages/BillDetailPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
 
+import { ConfirmPaymentPage } from "./pages/ConfirmPaymentPage"
 function App() {
   return (
     // 1. Wrap the entire app with the Router component to enable routing
@@ -118,6 +119,16 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+                    <Route
+            path="/expense/:expenseId/payment/:paymentId/confirm"
+            element={
+              <ProtectedRoute>
+                <ConfirmPaymentPage />
+              </ProtectedRoute>
+            }
+          />
+
           <Route path="/splitmoney" element={<SplitMoneyPage />} />
           <Route path="/manualsplit" element={<ManualSplitPage />} />
           <Route path="/equalsplit" element={<EqualSplitPage />} />
