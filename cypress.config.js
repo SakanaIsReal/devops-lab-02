@@ -1,9 +1,12 @@
 const { defineConfig } = require("cypress");
 
-module.exports = defineConfig({
+export default {
   e2e: {
-    setupNodeEvents(on, config) {
-      // implement node event listeners here
-    },
+    baseUrl: 'http://localhost:8080/', // URL ที่รัน frontend อยู่
+    video: true,
+    screenshotOnRunFailure: true,
+    viewportWidth: 1440,
+    viewportHeight: 900,
   },
-});
+}
+
