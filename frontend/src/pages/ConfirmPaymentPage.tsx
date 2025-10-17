@@ -34,7 +34,7 @@ export const ConfirmPaymentPage: React.FC = () => {
             try {
                 await updatePaymentStatus(Number(expenseId), Number(paymentId), 'VERIFIED');
                 alert('Payment accepted');
-                navigate(`/groups/${payment?.expenseId}`);
+                navigate(`/bill/${payment?.expenseId}`);
             } catch {
                 alert('Failed to accept payment');
             }
@@ -46,7 +46,7 @@ export const ConfirmPaymentPage: React.FC = () => {
             try {
                 await updatePaymentStatus(Number(expenseId), Number(paymentId), 'REJECTED');
                 alert('Payment rejected');
-                navigate(`/groups/${payment?.expenseId}`);
+                navigate(`/bill/${payment?.expenseId}`);
             } catch {
                 alert('Failed to reject payment');
             }
@@ -79,10 +79,10 @@ export const ConfirmPaymentPage: React.FC = () => {
                     <div className="bg-white shadow-md rounded-2xl p-6 mx-auto max-w-md">
                         <div className="mt-6 flex justify-center items-center flex-col">
                             <h2 className="text-xl font-semibold text-gray-800">
-                                Transaction from: <span className="text-blue-600">karnlnwza</span>
+                                Transaction from: <span className="text-blue-600">{fromUserName}</span>
                             </h2>
                             <h3 className="text-lg font-semibold text-gray-700">
-                                Amount: <span className="text-green-600">฿200,000</span>
+                                Amount: <span className="text-green-600">฿{payment.amount}</span>
                             </h3>
                             <div className="w-[260px] h-[350px] rounded-xl mt-5 overflow-hidden shadow-sm border border-gray-200">
                                 {payment.receiptFileUrl && <img src={payment.receiptFileUrl} className="w-full object-cover" alt="" />}
