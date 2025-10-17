@@ -27,11 +27,15 @@ jobs:
         
     - name: Install Frontend Dependencies
       working-directory: ./frontend
-      run: npm ci
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm ci
         
     - name: Install Cypress
       working-directory: ./frontend
-      run: npm install cypress --save-dev
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm install cypress --save-dev
         
     - name: Run Backend Unit Tests
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -45,17 +49,22 @@ jobs:
         
     - name: Run Frontend Unit Tests
       working-directory: ./frontend
-      run: npm test -- --watchAll=false
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm test -- --watchAll=false
         
     - name: Start Frontend for E2E Tests
       working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
         Start-Process npm -ArgumentList "start" -NoNewWindow
         Start-Sleep -Seconds 30
       
     - name: Run Cypress E2E Tests
       working-directory: ./frontend
-      run: npx cypress run
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npx cypress run
       
     - name: Upload Cypress Screenshots
       if: failure()
