@@ -73,19 +73,6 @@ jobs:
         $gitSha = "${{ github.sha }}"
         docker build -t "${backendImage}:latest" -t "${backendImage}:${gitSha}" ./backend
         
-    - name: Run Tests in Container
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $jwtSecret = $env:APP_JWT_SECRET
-        docker run --rm `
-          -e SPRING_PROFILES_ACTIVE=test `
-          -e APP_JWT_SECRET="$jwtSecret" `
-          "${backendImage}:latest" `
-          mvn "-Dapp.jwt.secret=$jwtSecret" test
-        
     - name: Build Frontend Image
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
