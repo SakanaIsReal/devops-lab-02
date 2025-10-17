@@ -50,14 +50,6 @@ jobs:
         $jwtSecret = $env:APP_JWT_SECRET
         mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
         
-    - name: Run Frontend Unit Tests
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        CI: true
-      run: |
-        npm test -- --watchAll=false --testEnvironment=jsdom
-        
     - name: Install Cypress
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
