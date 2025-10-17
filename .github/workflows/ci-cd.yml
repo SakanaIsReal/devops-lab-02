@@ -28,7 +28,7 @@ jobs:
       run: |
         cd backend
         $jwtSecret = $env:APP_JWT_SECRET
-        mvn "-Dapp.jwt.secret=$jwtSecret" test
+        mvn test -Dapp.jwt.secret=$jwtSecret -DskipITs=true
 
   build-and-push:
     runs-on: self-hosted
@@ -81,13 +81,10 @@ jobs:
         $backendImage = "${{ env.BACKEND_IMAGE }}"
         $jwtSecret = $env:APP_JWT_SECRET
         docker run --rm `
-          --privileged `
           -e SPRING_PROFILES_ACTIVE=test `
           -e APP_JWT_SECRET="$jwtSecret" `
-          -e TESTCONTAINERS_RYUK_DISABLED=true `
-          -v /var/run/docker.sock:/var/run/docker.sock `
           "${backendImage}:latest" `
-          mvn "-Dapp.jwt.secret=$jwtSecret" "-Dtestcontainers.reuse.enable=true" test
+          mvn verify -Dapp.jwt.secret=$jwtSecret -DskipUTs=true
         
     - name: Build Frontend Image
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
