@@ -31,6 +31,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend
+  namespace: smartsplit
 spec:
   selector:
     app: frontend
