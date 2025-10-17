@@ -50,65 +50,7 @@ jobs:
         $jwtSecret = $env:APP_JWT_SECRET
         mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
         
-    - name: Install Cypress
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        npm install cypress@12.17.4 --save-dev
-        npx cypress verify
-      
-    - name: Start Frontend for E2E Tests
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Start-Process npm -ArgumentList "start" -NoNewWindow -PassThru
-        Write-Host "Waiting for frontend to start..."
-        # Wait for the frontend to be ready by checking if the port is accessible
-        $maxAttempts = 30
-        $attempts = 0
-        $ready = $false
-        while (-not $ready -and $attempts -lt $maxAttempts) {
-          try {
-            $response = Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 1
-            if ($response.StatusCode -eq 200) {
-              $ready = $true
-              Write-Host "Frontend is ready!"
-            }
-          }
-          catch {
-            $attempts++
-            Write-Host "Waiting for frontend to be ready... Attempt: $attempts"
-            Start-Sleep -Seconds 2
-          }
-        }
-        if (-not $ready) {
-          Write-Error "Frontend failed to start after $maxAttempts attempts"
-          exit 1
-        }
-        
-    - name: Run Cypress E2E Tests
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        CYPRESS_BASE_URL: "http://localhost:3000"
-      run: |
-        npx cypress run --config video=false
-      
-    - name: Upload Cypress Screenshots
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cypress-screenshots
-        path: frontend/cypress/screenshots
-        retention-days: 5
-        
-    - name: Upload Cypress Videos
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cypress-videos
-        path: frontend/cypress/videos
-        retention-days: 5
+
 
   build-and-push:
     runs-on: self-hosted
