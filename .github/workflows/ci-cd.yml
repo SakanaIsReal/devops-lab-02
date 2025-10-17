@@ -14,12 +14,25 @@ env:
 jobs:
   test:
     runs-on: self-hosted
-    name: Run Backend Tests
+    name: Run Tests
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      run: npm ci
+        
+    - name: Install Cypress
+      working-directory: ./frontend
+      run: npm install cypress --save-dev
+        
     - name: Run Backend Unit Tests
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       env:
@@ -29,6 +42,34 @@ jobs:
         cd backend
         $jwtSecret = $env:APP_JWT_SECRET
         mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
+        
+    - name: Run Frontend Unit Tests
+      working-directory: ./frontend
+      run: npm test -- --watchAll=false
+        
+    - name: Start Frontend for E2E Tests
+      working-directory: ./frontend
+      run: |
+        Start-Process npm -ArgumentList "start" -NoNewWindow
+        Start-Sleep -Seconds 30
+      
+    - name: Run Cypress E2E Tests
+      working-directory: ./frontend
+      run: npx cypress run
+      
+    - name: Upload Cypress Screenshots
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: cypress-screenshots
+        path: frontend/cypress/screenshots
+        
+    - name: Upload Cypress Videos
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: cypress-videos
+        path: frontend/cypress/videos
 
   build-and-push:
     runs-on: self-hosted
