@@ -20,6 +20,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Set PowerShell Execution Policy
+      run: |
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+        
     - name: Run Backend Unit Tests
       run: |
         cd backend
