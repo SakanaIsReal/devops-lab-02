@@ -27,7 +27,8 @@ jobs:
         SPRING_PROFILES_ACTIVE: test
       run: |
         cd backend
-        mvn test -Dapp.jwt.secret=$env:APP_JWT_SECRET
+        $jwtSecret = $env:APP_JWT_SECRET
+        mvn "-Dapp.jwt.secret=$jwtSecret" test
 
   build-and-push:
     runs-on: self-hosted
