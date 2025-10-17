@@ -20,13 +20,9 @@ export interface Group {
   name: string;
   participantCount: number;
   imageUrl: string;
-}
-
-export interface PaymentDetails {
-  transactionId: string;
-  payerName: string;
-  amountToPay: number;
-  qrCodeUrl: string;
+  ownerUserId?: number;
+  coverImageUrl?: string;
+  memberCount?: number;
 }
 
 export interface BillMember {
@@ -58,8 +54,6 @@ export interface UserUpdateForm {
     qr: File | string ;
 }
 
-// Update your types file (../types.ts)
-
 export interface Expense {
     id: number;
     groupId: number;
@@ -69,16 +63,6 @@ export interface Expense {
     title: string;
     status: "SETTLED" | "OPEN" | "CANCELED";
     createdAt: string;
-}
-
-export interface Group {
-  id: string;
-  name: string;
-  participantCount: number;
-  imageUrl: string;
-  ownerUserId?: number;
-  coverImageUrl?: string;
-  memberCount?: number;
 }
 
 export interface Transaction {
@@ -96,69 +80,6 @@ export interface Transaction {
     date?: string;
 }
 
-export interface BillDetail {
-  id: string;
-  storeName: string;
-  payer: string;
-  date: string;
-  members: BillMember[];
-}
-
-export interface UserUpdateForm {
-    userName : string ;
-    email: string ;
-    phone: string ;
-    avatar: File | string ;
-    qr: File | string ;
-}
-
-// Update your types file (../types.ts)
-
-export interface Expense {
-    id: number;
-    groupId: number;
-    payerUserId: number;
-    amount: number;
-    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
-    title: string;
-    status: "SETTLED" | "OPEN" | "CANCELED";
-    createdAt: string;
-}
-
-export interface Group {
-  id: string;
-  name: string;
-  participantCount: number;
-  imageUrl: string;
-  ownerUserId?: number;
-  coverImageUrl?: string;
-  memberCount?: number;
-}
-
-export interface Transaction {
-    id: number;
-    groupId: number;
-    payerUserId: number;
-    amount: number;
-    type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
-    title: string;
-    status: "SETTLED" | "OPEN" | "CANCELED";
-    createdAt: string;
-    // For compatibility with existing components
-    name?: string;
-    payer?: string;
-    date?: string;
-}
-
-export interface BillDetail {
-  id: string;
-  storeName: string;
-  payer: string;
-  date: string;
-  members: BillMember[];
-}
-
-// Add to your types file
 export interface Settlement {
   expenseId: number;
   userId: number;
@@ -182,15 +103,27 @@ export interface PaymentDetails {
   remaining?: number;
 }
 
-// Add to your types file
-export interface PaymentResponse {
-    id: number;
-    expenseId: number;
-    fromUserId: number;
-    result: number;
-    status: string;
-    curricular: string; // This seems to be createdAt (typo in API)
-    verifiable: string; // This seems to be updatedAt (typo in API)
-    recelptlist: number; // Typo in API
-    recelptfiled: string; // Typo in API
+export interface Payment {
+  id: number;
+  expenseId: number;
+  fromUserId: number;
+  amount: number;
+  status: "PENDING" | "VERIFIED" | "REJECTED";
+  createdAt: string;
+  verifiedAt: string | null;
+  receiptId: number | null;
+  receiptFileUrl: string | null;
+}
+
+export interface Balance {
+  direction: "OWES_YOU" | "YOU_OWE";
+  counterpartyUserId: number;
+  counterpartyUserName: string;
+  counterpartyAvatarUrl: string | null;
+  groupId: number;
+  groupName: string;
+  expenseId: number;
+  expenseTitle: string;
+  remaining: number;
+  status: string;
 }

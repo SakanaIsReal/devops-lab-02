@@ -32,7 +32,7 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
         /* รวมเงินที่จ่ายแล้วต่อ expense ต่อผู้จ่าย เพื่อกันการนับซ้ำ */
         LEFT JOIN (
            SELECT expense_id, from_user_id,
-                  SUM(CASE WHEN status = 'APPROVED' THEN amount ELSE 0 END) AS paid
+                  SUM(CASE WHEN status = 'VERIFIED' THEN amount ELSE 0 END) AS paid
            FROM `expense_payments`
            GROUP BY expense_id, from_user_id
         ) pay ON pay.expense_id = e.expense_id AND pay.from_user_id = :userId
@@ -66,7 +66,7 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
                                        AND s.participant_user_id <> :userId
         LEFT JOIN (
            SELECT expense_id, from_user_id,
-                  SUM(CASE WHEN status = 'APPROVED' THEN amount ELSE 0 END) AS paid
+                  SUM(CASE WHEN status = 'VERIFIED' THEN amount ELSE 0 END) AS paid
            FROM `expense_payments`
            GROUP BY expense_id, from_user_id
         ) pay ON pay.expense_id = e.expense_id AND pay.from_user_id = s.participant_user_id

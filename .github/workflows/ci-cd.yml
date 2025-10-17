@@ -1,0 +1,148 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: docker.io
+  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-frontend
+
+jobs:
+  test:
+    runs-on: self-hosted
+    name: Run Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'  # Updated from 18 to 20
+        
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+        Remove-Item package-lock.json -ErrorAction SilentlyContinue
+        npm install --legacy-peer-deps
+        npm install --save-dev --legacy-peer-deps @types/jest @testing-library/jest-dom @testing-library/react @testing-library/user-event jest
+        
+    - name: Install Cypress
+      working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm install cypress --save-dev
+        
+    - name: Run Backend Unit Tests
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+        SPRING_PROFILES_ACTIVE: test
+      run: |
+        cd backend
+        $jwtSecret = $env:APP_JWT_SECRET
+        mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
+        
+
+
+  build-and-push:
+    runs-on: self-hosted
+    name: Build and Push Docker Images
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Verify Docker is Running
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $maxAttempts = 10
+        $attempt = 0
+        while ($attempt -lt $maxAttempts) {
+          try {
+            docker info | Out-Null
+            Write-Host "Docker is running"
+            break
+          } catch {
+            $attempt++
+            Write-Host "Waiting for Docker to start... (Attempt $attempt/$maxAttempts)"
+            Start-Sleep -Seconds 5
+          }
+        }
+        if ($attempt -eq $maxAttempts) {
+          Write-Error "Docker failed to start"
+          exit 1
+        }
+      
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+    - name: Build Backend Image
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $backendImage = "${{ env.BACKEND_IMAGE }}"
+        $gitSha = "${{ github.sha }}"
+        docker build -t "${backendImage}:latest" -t "${backendImage}:${gitSha}" ./backend
+        
+    - name: Build Frontend Image
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
+        $gitSha = "${{ github.sha }}"
+        docker build -t "${frontendImage}:latest" -t "${frontendImage}:${gitSha}" ./frontend
+        
+    - name: Push Backend to Docker Hub
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $backendImage = "${{ env.BACKEND_IMAGE }}"
+        $gitSha = "${{ github.sha }}"
+        docker push "${backendImage}:latest"
+        docker push "${backendImage}:${gitSha}"
+        
+    - name: Push Frontend to Docker Hub
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
+        $gitSha = "${{ github.sha }}"
+        docker push "${frontendImage}:latest"
+        docker push "${frontendImage}:${gitSha}"
+
+  deploy:
+    needs: build-and-push
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Update Kubernetes Deployments
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $backendImage = "${{ env.BACKEND_IMAGE }}"
+        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
+        kubectl set image deployment/backend backend="${backendImage}:latest" -n smartsplit
+        kubectl set image deployment/frontend frontend="${frontendImage}:latest" -n smartsplit
+        
+    - name: Wait for Rollout
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        kubectl rollout status deployment/backend -n smartsplit --timeout=300s
+        kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
+        
+    - name: Verify Deployment
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        kubectl get pods -n smartsplit
+        Write-Host 'Deployment completed successfully!'

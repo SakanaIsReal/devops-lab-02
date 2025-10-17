@@ -3,6 +3,7 @@ package com.smartsplit.smartsplitback.service;
 import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartsplit.smartsplitback.model.dto.UserPublicDto;
 import java.util.List;
@@ -11,7 +12,12 @@ import java.util.List;
 @Transactional
 public class UserService {
     private final UserRepository repo;
-    public UserService(UserRepository repo){ this.repo = repo; }
+    private final PasswordEncoder passwordEncoder;                 
+
+    public UserService(UserRepository repo, PasswordEncoder passwordEncoder) { 
+        this.repo = repo;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     public List<User> list(){ return repo.findAll(); }
     public User get(Long id){ return repo.findById(id).orElse(null); }
@@ -26,4 +32,6 @@ public class UserService {
     public static UserPublicDto toPublicDto(User u) {
         return new UserPublicDto(u.getId(), u.getEmail(), u.getUserName(), u.getPhone(), u.getAvatarUrl());
     }
+    public boolean passwordMatches(String raw, String encoded) { return passwordEncoder.matches(raw, encoded); }
+    public String encodePassword(String raw) { return passwordEncoder.encode(raw); }
 }
