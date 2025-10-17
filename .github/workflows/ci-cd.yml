@@ -58,18 +58,28 @@ jobs:
       run: |
         npm test -- --watchAll=false --testEnvironment=jsdom
         
+    - name: Install Cypress
+      working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm install cypress@latest --save-dev
+        npx cypress verify
+      
     - name: Start Frontend for E2E Tests
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        Start-Process npm -ArgumentList "start" -NoNewWindow
+        $process = Start-Process npm -ArgumentList "start" -NoNewWindow -PassThru
+        Write-Host "Waiting for frontend to start..."
         Start-Sleep -Seconds 30
-      
+        
     - name: Run Cypress E2E Tests
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        CYPRESS_BASE_URL: "http://localhost:3000"
       run: |
-        npx cypress run
+        npx cypress run --browser chrome --headless
       
     - name: Upload Cypress Screenshots
       if: failure()
