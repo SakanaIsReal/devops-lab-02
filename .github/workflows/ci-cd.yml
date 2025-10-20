@@ -72,21 +72,59 @@ jobs:
     - name: Cleanup Previous Containers
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        # Stop and remove container if it exists
-        if (docker ps -a --format "{{.Names}}" | Select-String -Pattern "^mysql-ci$") {
-          docker stop mysql-ci
-          docker rm mysql-ci
+        Write-Host "Cleaning up previous test environment..."
+
+        # Stop all Java and Node processes from previous runs
+        Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+
+        # Force stop and remove MySQL container if it exists
+        $mysqlContainer = docker ps -aq -f name=mysql-ci
+        if ($mysqlContainer) {
+          Write-Host "Stopping and removing mysql-ci container..."
+          docker stop mysql-ci -t 0 2>$null
+          docker rm -f mysql-ci 2>$null
+          Start-Sleep -Seconds 2
         }
+
         # Remove network if it exists
-        if (docker network ls --format "{{.Name}}" | Select-String -Pattern "^smartsplit-ci-network$") {
-          docker network rm smartsplit-ci-network
+        $network = docker network ls -q -f name=smartsplit-ci-network
+        if ($network) {
+          Write-Host "Removing smartsplit-ci-network..."
+          docker network rm smartsplit-ci-network 2>$null
         }
+
+        # Kill any processes using critical ports (MySQL: 3307, Backend: 16048, Frontend: 3000)
+        $ports = @(3307, 16048, 3000)
+        foreach ($port in $ports) {
+          $processOnPort = netstat -ano | Select-String ":$port" | Select-String "LISTENING"
+          if ($processOnPort) {
+            $processOnPort | ForEach-Object {
+              $line = $_.Line -split '\s+'
+              $pid = $line[-1]
+              if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
+                Write-Host "Killing process $pid using port ${port}..."
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+              }
+            }
+          }
+        }
+        Start-Sleep -Seconds 2
+
+        Write-Host "Cleanup completed"
 
     - name: Start MySQL Database
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        docker network create smartsplit-ci-network
-        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { exit $LASTEXITCODE }
+        Write-Host "Creating Docker network..."
+        docker network create smartsplit-ci-network 2>$null
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "Network created successfully"
+        } else {
+          Write-Host "Network might already exist (ignored)"
+        }
+
+        Write-Host "Starting MySQL container..."
         docker run -d `
           --name mysql-ci `
           --network smartsplit-ci-network `
@@ -94,7 +132,32 @@ jobs:
           -e MYSQL_DATABASE=smartsplit-db `
           -p 3307:3306 `
           mysql:8.0
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Failed to start MySQL container"
+          exit 1
+        }
+
+        Write-Host "Waiting for MySQL to be ready..."
         Start-Sleep -Seconds 30
+
+        # Verify MySQL is responding
+        $maxAttempts = 10
+        $attempt = 0
+        while ($attempt -lt $maxAttempts) {
+          $result = docker exec mysql-ci mysqladmin ping -h localhost -u root -prootpassword 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "MySQL is ready"
+            break
+          }
+          $attempt++
+          Write-Host "Waiting for MySQL to respond... (Attempt $attempt/$maxAttempts)"
+          Start-Sleep -Seconds 3
+        }
+        if ($attempt -eq $maxAttempts) {
+          Write-Error "MySQL failed to become ready"
+          exit 1
+        }
 
     - name: Build and Start Backend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -179,17 +242,44 @@ jobs:
       if: always()
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        # Stop Java and Node processes
+        Write-Host "Final cleanup..."
+
+        # Stop all Java and Node processes
         Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-        # Stop and remove container if it exists
-        if (docker ps -a --format "{{.Names}}" | Select-String -Pattern "^mysql-ci$") {
-          docker stop mysql-ci
-          docker rm mysql-ci
+        Start-Sleep -Seconds 2
+
+        # Force stop and remove MySQL container
+        $mysqlContainer = docker ps -aq -f name=mysql-ci
+        if ($mysqlContainer) {
+          Write-Host "Stopping and removing mysql-ci container..."
+          docker stop mysql-ci -t 0 2>$null
+          docker rm -f mysql-ci 2>$null
         }
-        # Remove network if it exists
-        if (docker network ls --format "{{.Name}}" | Select-String -Pattern "^smartsplit-ci-network$") {
-          docker network rm smartsplit-ci-network
+
+        # Remove network
+        $network = docker network ls -q -f name=smartsplit-ci-network
+        if ($network) {
+          Write-Host "Removing smartsplit-ci-network..."
+          docker network rm smartsplit-ci-network 2>$null
         }
+
+        # Kill any remaining processes on critical ports
+        $ports = @(3307, 16048, 3000)
+        foreach ($port in $ports) {
+          $processOnPort = netstat -ano | Select-String ":$port" | Select-String "LISTENING"
+          if ($processOnPort) {
+            $processOnPort | ForEach-Object {
+              $line = $_.Line -split '\s+'
+              $pid = $line[-1]
+              if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
+                Write-Host "Killing remaining process $pid on port ${port}..."
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+              }
+            }
+          }
+        }
+
+        Write-Host "Cleanup finished"
 
   build-and-push:
     runs-on: self-hosted
