@@ -72,9 +72,15 @@ jobs:
     - name: Cleanup Previous Containers
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        docker stop mysql-ci 2>$null
-        docker rm mysql-ci 2>$null
-        docker network rm smartsplit-ci-network 2>$null
+        # Stop and remove container if it exists
+        if (docker ps -a --format "{{.Names}}" | Select-String -Pattern "^mysql-ci$") {
+          docker stop mysql-ci
+          docker rm mysql-ci
+        }
+        # Remove network if it exists
+        if (docker network ls --format "{{.Name}}" | Select-String -Pattern "^smartsplit-ci-network$") {
+          docker network rm smartsplit-ci-network
+        }
 
     - name: Start MySQL Database
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -173,10 +179,17 @@ jobs:
       if: always()
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
+        # Stop Java and Node processes
         Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-        docker stop mysql-ci 2>$null
-        docker rm mysql-ci 2>$null
-        docker network rm smartsplit-ci-network 2>$null
+        # Stop and remove container if it exists
+        if (docker ps -a --format "{{.Names}}" | Select-String -Pattern "^mysql-ci$") {
+          docker stop mysql-ci
+          docker rm mysql-ci
+        }
+        # Remove network if it exists
+        if (docker network ls --format "{{.Name}}" | Select-String -Pattern "^smartsplit-ci-network$") {
+          docker network rm smartsplit-ci-network
+        }
 
   build-and-push:
     runs-on: self-hosted
