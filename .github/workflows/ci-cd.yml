@@ -69,10 +69,18 @@ jobs:
       run: |
         npm install
 
+    - name: Cleanup Previous Containers
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        docker stop mysql-ci 2>$null
+        docker rm mysql-ci 2>$null
+        docker network rm smartsplit-ci-network 2>$null
+
     - name: Start MySQL Database
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        docker network create smartsplit-ci-network -ErrorAction SilentlyContinue
+        docker network create smartsplit-ci-network
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { exit $LASTEXITCODE }
         docker run -d `
           --name mysql-ci `
           --network smartsplit-ci-network `
@@ -166,9 +174,9 @@ jobs:
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
         Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-        docker stop mysql-ci -ErrorAction SilentlyContinue
-        docker rm mysql-ci -ErrorAction SilentlyContinue
-        docker network rm smartsplit-ci-network -ErrorAction SilentlyContinue
+        docker stop mysql-ci 2>$null
+        docker rm mysql-ci 2>$null
+        docker network rm smartsplit-ci-network 2>$null
 
   build-and-push:
     runs-on: self-hosted
@@ -211,6 +219,7 @@ jobs:
       run: |
         $backendImage = "${{ env.BACKEND_IMAGE }}"
         $gitSha = "${{ github.sha }}"
+        # Build with dual tags: :latest (convenience) and :${gitSha} (immutable, used in deployments)
         docker build -t "${backendImage}:latest" -t "${backendImage}:${gitSha}" ./backend
         
     - name: Build Frontend Image
@@ -218,6 +227,7 @@ jobs:
       run: |
         $frontendImage = "${{ env.FRONTEND_IMAGE }}"
         $gitSha = "${{ github.sha }}"
+        # Build with dual tags: :latest (convenience) and :${gitSha} (immutable, used in deployments)
         docker build -t "${frontendImage}:latest" -t "${frontendImage}:${gitSha}" ./frontend
         
     - name: Push Backend to Docker Hub
@@ -250,8 +260,16 @@ jobs:
       run: |
         $backendImage = "${{ env.BACKEND_IMAGE }}"
         $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        kubectl set image deployment/backend backend="${backendImage}:latest" -n smartsplit
-        kubectl set image deployment/frontend frontend="${frontendImage}:latest" -n smartsplit
+        $gitSha = "${{ github.sha }}"
+
+        # Use git SHA for immutable deployments instead of :latest
+        kubectl set image deployment/backend backend="${backendImage}:${gitSha}" -n smartsplit
+        kubectl set image deployment/frontend frontend="${frontendImage}:${gitSha}" -n smartsplit
+
+        # Add annotation to force rollout with build timestamp
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        kubectl patch deployment backend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
+        kubectl patch deployment frontend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
         
     - name: Wait for Rollout
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
