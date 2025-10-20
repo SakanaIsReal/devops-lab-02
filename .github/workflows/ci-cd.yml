@@ -72,19 +72,33 @@ jobs:
     - name: Cleanup Previous Containers
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        Write-Host "Cleaning up previous test environment..."
+        Write-Host "=== Cleaning up previous test environment ==="
+
+        # Show current docker containers
+        Write-Host "`nCurrent Docker containers:"
+        docker ps -a --filter name=mysql-ci --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
         # Stop all Java and Node processes from previous runs
+        Write-Host "`nStopping Java and Node processes..."
         Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
 
-        # Force stop and remove MySQL container if it exists
+        # Force remove MySQL container if it exists (skip stop to save time)
         $mysqlContainer = docker ps -aq -f name=mysql-ci
         if ($mysqlContainer) {
-          Write-Host "Stopping and removing mysql-ci container..."
-          docker stop mysql-ci -t 0 2>$null
+          Write-Host "Force removing mysql-ci container..."
           docker rm -f mysql-ci 2>$null
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
+
+          # Verify container is removed
+          $stillExists = docker ps -aq -f name=mysql-ci
+          if ($stillExists) {
+            Write-Warning "Container mysql-ci still exists, attempting harder removal..."
+            docker rm -f mysql-ci 2>$null
+            Start-Sleep -Seconds 2
+          } else {
+            Write-Host "Container mysql-ci removed successfully"
+          }
         }
 
         # Remove network if it exists
@@ -94,29 +108,94 @@ jobs:
           docker network rm smartsplit-ci-network 2>$null
         }
 
+        # Check for Windows port exclusions that might block port 3307
+        Write-Host "`nChecking Windows port exclusions..."
+        try {
+          $exclusions = netsh interface ipv4 show excludedportrange protocol=tcp | Select-String "3307"
+          if ($exclusions) {
+            Write-Warning "Port 3307 is in Windows excluded port range!"
+            Write-Host "Excluded ranges containing 3307:"
+            netsh interface ipv4 show excludedportrange protocol=tcp | Select-String -Context 0,2 "3307"
+          } else {
+            Write-Host "Port 3307 is not in excluded port ranges (good)"
+          }
+        } catch {
+          Write-Host "Could not check port exclusions (non-critical)"
+        }
+
         # Kill any processes using critical ports (MySQL: 3307, Backend: 16048, Frontend: 3000)
+        Write-Host "`nChecking and killing processes on critical ports..."
         $ports = @(3307, 16048, 3000)
         foreach ($port in $ports) {
-          $processOnPort = netstat -ano | Select-String ":$port" | Select-String "LISTENING"
+          # Check for both LISTENING and TIME_WAIT states
+          $processOnPort = netstat -ano | Select-String ":$port" | Where-Object { $_ -match "LISTENING|TIME_WAIT|ESTABLISHED" }
           if ($processOnPort) {
+            Write-Host "Found connections on port ${port}:"
             $processOnPort | ForEach-Object {
+              Write-Host "  $_"
               $line = $_.Line -split '\s+'
               $pid = $line[-1]
               if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
-                Write-Host "Killing process $pid using port ${port}..."
+                Write-Host "  -> Killing process $pid using port ${port}..."
                 Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
               }
             }
+          } else {
+            Write-Host "Port ${port} is free"
           }
         }
-        Start-Sleep -Seconds 2
 
-        Write-Host "Cleanup completed"
+        # Wait longer for TCP connections to fully close (especially important on Windows)
+        Write-Host "`nWaiting for TCP connections to close..."
+        Start-Sleep -Seconds 5
+
+        # Final port status check
+        Write-Host "`nFinal port status for 3307:"
+        $finalCheck = netstat -ano | Select-String ":3307"
+        if ($finalCheck) {
+          Write-Warning "Port 3307 still has connections:"
+          $finalCheck | ForEach-Object { Write-Host "  $_" }
+        } else {
+          Write-Host "Port 3307 is completely free (ready for use)"
+        }
+
+        Write-Host "`n=== Cleanup completed ==="
 
     - name: Start MySQL Database
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
-        Write-Host "Creating Docker network..."
+        Write-Host "=== Starting MySQL Database ==="
+
+        # Verify port 3307 is actually free before starting
+        Write-Host "`nVerifying port 3307 is available..."
+        $portCheck = netstat -ano | Select-String ":3307" | Where-Object { $_ -match "LISTENING" }
+        if ($portCheck) {
+          Write-Error "Port 3307 is still in use after cleanup!"
+          Write-Host "Active connections on port 3307:"
+          netstat -ano | Select-String ":3307" | ForEach-Object { Write-Host "  $_" }
+
+          Write-Host "`nAttempting emergency cleanup..."
+          $portCheck | ForEach-Object {
+            $line = $_.Line -split '\s+'
+            $pid = $line[-1]
+            if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
+              Write-Host "Emergency kill of process $pid"
+              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Start-Sleep -Seconds 5
+
+          # Final check
+          $finalPortCheck = netstat -ano | Select-String ":3307" | Where-Object { $_ -match "LISTENING" }
+          if ($finalPortCheck) {
+            Write-Error "Cannot free port 3307. Manual intervention required."
+            exit 1
+          }
+        } else {
+          Write-Host "Port 3307 is available (confirmed)"
+        }
+
+        Write-Host "`nCreating Docker network..."
         docker network create smartsplit-ci-network 2>$null
         if ($LASTEXITCODE -eq 0) {
           Write-Host "Network created successfully"
@@ -124,21 +203,34 @@ jobs:
           Write-Host "Network might already exist (ignored)"
         }
 
-        Write-Host "Starting MySQL container..."
-        docker run -d `
+        Write-Host "`nStarting MySQL container..."
+        $dockerOutput = docker run -d `
           --name mysql-ci `
           --network smartsplit-ci-network `
           -e MYSQL_ROOT_PASSWORD=rootpassword `
           -e MYSQL_DATABASE=smartsplit-db `
           -p 3307:3306 `
-          mysql:8.0
+          mysql:8.0 2>&1
 
         if ($LASTEXITCODE -ne 0) {
           Write-Error "Failed to start MySQL container"
+          Write-Host "Docker error output:"
+          Write-Host $dockerOutput
+          Write-Host "`nCurrent port usage:"
+          netstat -ano | Select-String ":3307"
+          Write-Host "`nDocker containers:"
+          docker ps -a
           exit 1
         }
 
-        Write-Host "Waiting for MySQL to be ready..."
+        Write-Host "MySQL container started with ID: $dockerOutput"
+
+        # Verify container is running
+        Start-Sleep -Seconds 2
+        $containerStatus = docker ps --filter name=mysql-ci --format "{{.Status}}"
+        Write-Host "Container status: $containerStatus"
+
+        Write-Host "`nWaiting for MySQL to be ready..."
         Start-Sleep -Seconds 30
 
         # Verify MySQL is responding
@@ -147,7 +239,7 @@ jobs:
         while ($attempt -lt $maxAttempts) {
           $result = docker exec mysql-ci mysqladmin ping -h localhost -u root -prootpassword 2>$null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "MySQL is ready"
+            Write-Host "MySQL is ready and responding to queries"
             break
           }
           $attempt++
@@ -156,8 +248,12 @@ jobs:
         }
         if ($attempt -eq $maxAttempts) {
           Write-Error "MySQL failed to become ready"
+          Write-Host "Container logs:"
+          docker logs mysql-ci
           exit 1
         }
+
+        Write-Host "`n=== MySQL Database started successfully ==="
 
     - name: Build and Start Backend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
