@@ -179,11 +179,12 @@ APP_JWT_SECRET=<test-secret>
 
 ## CI/CD Pipeline
 
-The project uses GitHub Actions (`.github/workflows/ci-cd.yml`) with three stages:
+The project uses GitHub Actions (`.github/workflows/ci-cd.yml`) with four stages:
 
 1. **Test**: Runs backend unit tests with Maven and installs frontend dependencies
-2. **Build-and-Push**: Builds Docker images and pushes to Docker Hub (tagged with `:latest` and `:${git-sha}`)
-3. **Deploy**: Updates Kubernetes deployments in the `smartsplit` namespace
+2. **E2E-Test**: Runs Cypress end-to-end tests with full application stack (MySQL, Backend, Frontend)
+3. **Build-and-Push**: Builds Docker images and pushes to Docker Hub (tagged with `:latest` and `:${git-sha}`)
+4. **Deploy**: Updates Kubernetes deployments in the `smartsplit` namespace
 
 Pipeline runs on `self-hosted` runner using PowerShell on Windows.
 
@@ -191,6 +192,31 @@ Pipeline runs on `self-hosted` runner using PowerShell on Windows.
 - `DOCKERHUB_USERNAME`
 - `DOCKERHUB_TOKEN`
 - `APP_JWT_SECRET`
+
+### E2E Testing Stage Details
+
+The E2E test stage:
+- Spins up a temporary MySQL database using Docker (port 3307)
+- Builds and starts the backend (port 16048)
+- Starts the frontend dev server (port 3000)
+- Waits for all services to be healthy using actuator endpoints
+- Runs Cypress tests from the **root directory** using `npx cypress run`
+- Uploads test artifacts (screenshots on failure, videos always) to GitHub Actions
+- Cleans up all processes and Docker containers after completion
+
+**Cypress Configuration:**
+- Tests located in: `cypress/e2e/`
+- Config file: `cypress.config.js` (root directory)
+- Base URL: Configurable via `CYPRESS_BASE_URL` environment variable (default: `http://localhost:3003/`, CI uses `http://localhost:3000`)
+- Artifacts saved to: `cypress/screenshots/`, `cypress/videos/`, `cypress/downloads/` (all gitignored)
+
+**Test Coverage:**
+The E2E test suite (`cypress/e2e/SmartSplit-E2E.cy.js`) covers:
+- User authentication (sign up, sign in, sign out)
+- Profile editing
+- Group management (CRUD operations)
+- Expense management (equal split and manual split)
+- Payment processing and verification
 
 ## Key Technical Details
 
@@ -208,7 +234,6 @@ Flyway handles database schema versioning. Migration files are in `backend/src/m
 ### Known Issues
 - API routing may have errors when using separated ports (fixed by using reverse proxy per commit be3123c)
 - Frontend proxy set to specific port (16048) for backend communication
-- Cypress tests are disabled in CI pipeline (removed in commit 2a447af)
 
 ## Branch Strategy
 

@@ -49,13 +49,131 @@ jobs:
         cd backend
         $jwtSecret = $env:APP_JWT_SECRET
         mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
-        
 
+  e2e-test:
+    runs-on: self-hosted
+    name: Run E2E Tests
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+
+    - name: Install Root Dependencies (Cypress)
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm install
+
+    - name: Start MySQL Database
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        docker network create smartsplit-ci-network -ErrorAction SilentlyContinue
+        docker run -d `
+          --name mysql-ci `
+          --network smartsplit-ci-network `
+          -e MYSQL_ROOT_PASSWORD=rootpassword `
+          -e MYSQL_DATABASE=smartsplit-db `
+          -p 3307:3306 `
+          mysql:8.0
+        Start-Sleep -Seconds 30
+
+    - name: Build and Start Backend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+      run: |
+        cd backend
+        mvn clean package -DskipTests
+        Start-Process powershell -ArgumentList "-Command", "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:3307/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048" -WindowStyle Hidden
+        Start-Sleep -Seconds 20
+
+    - name: Install Frontend Dependencies
+      working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        npm install --legacy-peer-deps
+
+    - name: Start Frontend
+      working-directory: ./frontend
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        Start-Process powershell -ArgumentList "-Command", "npm start" -WindowStyle Hidden
+        Start-Sleep -Seconds 30
+
+    - name: Wait for Services
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        $maxAttempts = 30
+        $attempt = 0
+        while ($attempt -lt $maxAttempts) {
+          try {
+            $response = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 5
+            if ($response.StatusCode -eq 200) {
+              Write-Host "Frontend is ready"
+              break
+            }
+          } catch {
+            $attempt++
+            Write-Host "Waiting for frontend... (Attempt $attempt/$maxAttempts)"
+            Start-Sleep -Seconds 5
+          }
+        }
+        $attempt = 0
+        while ($attempt -lt $maxAttempts) {
+          try {
+            $response = Invoke-WebRequest -Uri http://localhost:16048/api/actuator/health -UseBasicParsing -TimeoutSec 5
+            if ($response.StatusCode -eq 200) {
+              Write-Host "Backend is ready"
+              break
+            }
+          } catch {
+            $attempt++
+            Write-Host "Waiting for backend... (Attempt $attempt/$maxAttempts)"
+            Start-Sleep -Seconds 5
+          }
+        }
+
+    - name: Run Cypress E2E Tests
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        CYPRESS_BASE_URL: http://localhost:3000
+      run: |
+        npx cypress run --headless --browser chrome
+
+    - name: Upload Cypress Screenshots
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cypress-screenshots
+        path: cypress/screenshots
+        if-no-files-found: ignore
+
+    - name: Upload Cypress Videos
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cypress-videos
+        path: cypress/videos
+        if-no-files-found: ignore
+
+    - name: Cleanup
+      if: always()
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+        docker stop mysql-ci -ErrorAction SilentlyContinue
+        docker rm mysql-ci -ErrorAction SilentlyContinue
+        docker network rm smartsplit-ci-network -ErrorAction SilentlyContinue
 
   build-and-push:
     runs-on: self-hosted
     name: Build and Push Docker Images
-    needs: test
+    needs: [test, e2e-test]
     
     steps:
     - name: Checkout code
