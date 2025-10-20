@@ -27,6 +27,8 @@ spec:
           echo "MySQL is up - proceeding"
       containers:
       - name: backend
+        # Image tag is dynamically set during CI/CD deployment to git SHA
+        # For local development, use: backend:latest (without registry prefix)
         image: sakanaisreal/smartsplit-backend:latest
         imagePullPolicy: Always
         ports:

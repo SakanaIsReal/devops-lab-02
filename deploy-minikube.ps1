@@ -1,6 +1,11 @@
 #!/usr/bin/env pwsh
 
+param(
+    [string]$ImageTag = "latest"
+)
+
 Write-Host "Starting Minikube deployment process..." -ForegroundColor Green
+Write-Host "Using image tag: $ImageTag" -ForegroundColor Cyan
 
 # Start Minikube if not running
 Write-Host "Starting Minikube..." -ForegroundColor Yellow
@@ -16,10 +21,16 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Setting docker environment to Minikube..." -ForegroundColor Yellow
 minikube docker-env | Invoke-Expression
 
-# Build Docker images
-Write-Host "Building Docker images..." -ForegroundColor Yellow
-docker build -t backend:latest ./backend
-docker build -t frontend:latest ./frontend
+# Build Docker images with specified tag (default: latest)
+Write-Host "Building Docker images with tag: $ImageTag..." -ForegroundColor Yellow
+docker build -t "backend:$ImageTag" ./backend
+docker build -t "frontend:$ImageTag" ./frontend
+
+# Tag as :latest as well for local development convenience
+if ($ImageTag -ne "latest") {
+    docker tag "backend:$ImageTag" backend:latest
+    docker tag "frontend:$ImageTag" frontend:latest
+}
 
 # Create namespace
 Write-Host "Creating namespace..." -ForegroundColor Yellow

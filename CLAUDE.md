@@ -183,8 +183,10 @@ The project uses GitHub Actions (`.github/workflows/ci-cd.yml`) with four stages
 
 1. **Test**: Runs backend unit tests with Maven and installs frontend dependencies
 2. **E2E-Test**: Runs Cypress end-to-end tests with full application stack (MySQL, Backend, Frontend)
-3. **Build-and-Push**: Builds Docker images and pushes to Docker Hub (tagged with `:latest` and `:${git-sha}`)
-4. **Deploy**: Updates Kubernetes deployments in the `smartsplit` namespace
+3. **Build-and-Push**: Builds Docker images and pushes to Docker Hub with dual tags:
+   - `:latest` - Convenience tag for pulling latest image
+   - `:${git-sha}` - Immutable tag tied to git commit (used for deployments)
+4. **Deploy**: Updates Kubernetes deployments using git SHA tags for immutable, auditable deployments
 
 Pipeline runs on `self-hosted` runner using PowerShell on Windows.
 
@@ -192,6 +194,57 @@ Pipeline runs on `self-hosted` runner using PowerShell on Windows.
 - `DOCKERHUB_USERNAME`
 - `DOCKERHUB_TOKEN`
 - `APP_JWT_SECRET`
+
+### Docker Image Tagging Strategy
+
+**Production (CI/CD)**:
+- Images are tagged with both `:latest` and `:${git-sha}` during build
+- **Deployments use `:${git-sha}` tags exclusively** for:
+  - Immutable deployments (each deployment tied to specific git commit)
+  - Easy rollbacks to previous versions
+  - Clear audit trail of deployed code
+  - Guaranteed consistency across environments
+
+**Local Development (Minikube)**:
+- Uses `:latest` tag by default for simplicity
+- Can optionally use specific versions for testing:
+  ```powershell
+  # Windows - deploy with custom tag
+  .\deploy-minikube.ps1 -ImageTag "v1.2.3"
+  ```
+  ```bash
+  # Linux/Mac - deploy with custom tag
+  IMAGE_TAG=v1.2.3 ./deploy-minikube.sh
+  ```
+
+**Image Pull Policy**:
+- Both backend and frontend use `imagePullPolicy: Always` to ensure fresh images are pulled
+- Prevents stale image issues in Kubernetes
+
+**Checking Deployed Version**:
+```bash
+# View current image tags in production
+kubectl describe deployment backend -n smartsplit | grep Image:
+kubectl describe deployment frontend -n smartsplit | grep Image:
+
+# View deployment history
+kubectl rollout history deployment/backend -n smartsplit
+kubectl rollout history deployment/frontend -n smartsplit
+```
+
+**Rolling Back to Previous Version**:
+```bash
+# Rollback to previous deployment
+kubectl rollout undo deployment/backend -n smartsplit
+kubectl rollout undo deployment/frontend -n smartsplit
+
+# Rollback to specific revision
+kubectl rollout undo deployment/backend -n smartsplit --to-revision=2
+
+# Deploy specific git SHA version
+kubectl set image deployment/backend backend=sakanaisreal/smartsplit-backend:<git-sha> -n smartsplit
+kubectl set image deployment/frontend frontend=sakanaisreal/smartsplit-frontend:<git-sha> -n smartsplit
+```
 
 ### E2E Testing Stage Details
 
