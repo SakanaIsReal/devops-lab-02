@@ -161,18 +161,88 @@ jobs:
 
         Write-Host "`n=== Cleanup completed ==="
 
+    - name: Fix Windows Hyper-V Port Reservations
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        Write-Host "=== Checking Windows Hyper-V Port Reservations ==="
+
+        # Show current dynamic port range
+        Write-Host "`nWindows dynamic port range:"
+        netsh int ipv4 show dynamicport tcp
+
+        # Show all excluded port ranges
+        Write-Host "`nWindows excluded port ranges:"
+        netsh int ipv4 show excludedportrange protocol=tcp
+
+        # Check if port 3307 is in an excluded range
+        Write-Host "`nChecking if port 3307 is in excluded ranges..."
+        $excludedRanges = netsh int ipv4 show excludedportrange protocol=tcp
+        $inExcludedRange = $false
+
+        $excludedRanges | Select-String -Pattern "\s+(\d+)\s+(\d+)" -AllMatches | ForEach-Object {
+          $_.Matches | ForEach-Object {
+            $start = [int]$_.Groups[1].Value
+            $end = [int]$_.Groups[2].Value
+            if (3307 -ge $start -and 3307 -le $end) {
+              Write-Warning "Port 3307 is in excluded range: $start - $end"
+              $inExcludedRange = $true
+            }
+          }
+        }
+
+        if (-not $inExcludedRange) {
+          Write-Host "Port 3307 is NOT in any excluded range (but may still be reserved by Hyper-V)"
+        }
+
+        # Attempt to restart WinNAT to clear stale port reservations
+        Write-Host "`nAttempting to restart WinNAT service to clear stale reservations..."
+        try {
+          $winnat = Get-Service -Name WinNat -ErrorAction SilentlyContinue
+          if ($winnat) {
+            if ($winnat.Status -eq "Running") {
+              Write-Host "Restarting WinNAT service..."
+              Restart-Service -Name WinNat -Force -ErrorAction Stop
+              Start-Sleep -Seconds 3
+              Write-Host "WinNAT service restarted successfully"
+            } else {
+              Write-Host "WinNAT service is not running (status: $($winnat.Status))"
+            }
+          } else {
+            Write-Host "WinNAT service not found (may not be using Hyper-V)"
+          }
+        } catch {
+          Write-Warning "Could not restart WinNAT service: $_"
+          Write-Host "This is non-critical, continuing..."
+        }
+
+        # Give the system time to release port reservations
+        Write-Host "`nWaiting for port reservations to clear..."
+        Start-Sleep -Seconds 3
+
+        # Final check
+        Write-Host "`nFinal exclusion check:"
+        netsh int ipv4 show excludedportrange protocol=tcp | Select-String -Pattern "3307" -Context 1,1
+
+        Write-Host "`n=== Hyper-V port check completed ==="
+
     - name: Start MySQL Database
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
         Write-Host "=== Starting MySQL Database ==="
 
-        # Verify port 3307 is actually free before starting
-        Write-Host "`nVerifying port 3307 is available..."
-        $portCheck = netstat -ano | Select-String ":3307" | Where-Object { $_ -match "LISTENING" }
+        # Try primary port first, fallback to safe port if blocked
+        $primaryPort = 3307
+        $fallbackPort = 50307
+        $mysqlPort = $primaryPort
+
+        # Verify primary port is actually free
+        Write-Host "`nVerifying port $primaryPort is available..."
+        $portCheck = netstat -ano | Select-String ":$primaryPort" | Where-Object { $_ -match "LISTENING" }
+
         if ($portCheck) {
-          Write-Error "Port 3307 is still in use after cleanup!"
-          Write-Host "Active connections on port 3307:"
-          netstat -ano | Select-String ":3307" | ForEach-Object { Write-Host "  $_" }
+          Write-Warning "Port $primaryPort is still in use after cleanup!"
+          Write-Host "Active connections on port ${primaryPort}:"
+          netstat -ano | Select-String ":$primaryPort" | ForEach-Object { Write-Host "  $_" }
 
           Write-Host "`nAttempting emergency cleanup..."
           $portCheck | ForEach-Object {
@@ -184,15 +254,8 @@ jobs:
             }
           }
           Start-Sleep -Seconds 5
-
-          # Final check
-          $finalPortCheck = netstat -ano | Select-String ":3307" | Where-Object { $_ -match "LISTENING" }
-          if ($finalPortCheck) {
-            Write-Error "Cannot free port 3307. Manual intervention required."
-            exit 1
-          }
         } else {
-          Write-Host "Port 3307 is available (confirmed)"
+          Write-Host "Port $primaryPort appears free to netstat"
         }
 
         Write-Host "`nCreating Docker network..."
@@ -203,27 +266,57 @@ jobs:
           Write-Host "Network might already exist (ignored)"
         }
 
-        Write-Host "`nStarting MySQL container..."
+        # Try starting MySQL on primary port
+        Write-Host "`nAttempting to start MySQL container on port ${primaryPort}..."
         $dockerOutput = docker run -d `
           --name mysql-ci `
           --network smartsplit-ci-network `
           -e MYSQL_ROOT_PASSWORD=rootpassword `
           -e MYSQL_DATABASE=smartsplit-db `
-          -p 3307:3306 `
+          -p "${primaryPort}:3306" `
           mysql:8.0 2>&1
 
         if ($LASTEXITCODE -ne 0) {
-          Write-Error "Failed to start MySQL container"
-          Write-Host "Docker error output:"
-          Write-Host $dockerOutput
-          Write-Host "`nCurrent port usage:"
-          netstat -ano | Select-String ":3307"
-          Write-Host "`nDocker containers:"
-          docker ps -a
-          exit 1
+          Write-Warning "Failed to start MySQL on port $primaryPort (likely Hyper-V reservation)"
+          Write-Host "Docker error: $dockerOutput"
+
+          # Clean up failed attempt
+          docker rm -f mysql-ci 2>$null
+          Start-Sleep -Seconds 2
+
+          # Try fallback port (outside typical Hyper-V range)
+          Write-Host "`nTrying fallback port ${fallbackPort} (outside Hyper-V range)..."
+          $mysqlPort = $fallbackPort
+
+          $dockerOutput = docker run -d `
+            --name mysql-ci `
+            --network smartsplit-ci-network `
+            -e MYSQL_ROOT_PASSWORD=rootpassword `
+            -e MYSQL_DATABASE=smartsplit-db `
+            -p "${fallbackPort}:3306" `
+            mysql:8.0 2>&1
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to start MySQL container on both ports!"
+            Write-Host "Docker error output:"
+            Write-Host $dockerOutput
+            Write-Host "`nPort exclusions:"
+            netsh int ipv4 show excludedportrange protocol=tcp
+            Write-Host "`nDocker containers:"
+            docker ps -a
+            exit 1
+          }
+
+          Write-Host "Successfully started MySQL on fallback port ${fallbackPort}"
+        } else {
+          Write-Host "Successfully started MySQL on primary port ${primaryPort}"
         }
 
         Write-Host "MySQL container started with ID: $dockerOutput"
+        Write-Host "MySQL is accessible on localhost:${mysqlPort}"
+
+        # Export MySQL port for subsequent steps
+        "MYSQL_PORT=${mysqlPort}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
         # Verify container is running
         Start-Sleep -Seconds 2
@@ -253,16 +346,20 @@ jobs:
           exit 1
         }
 
-        Write-Host "`n=== MySQL Database started successfully ==="
+        Write-Host "`n=== MySQL Database started successfully on port ${mysqlPort} ==="
 
     - name: Build and Start Backend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       env:
         APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       run: |
+        # Use dynamic MySQL port from previous step (defaults to 3307 if not set)
+        $mysqlPort = if ($env:MYSQL_PORT) { $env:MYSQL_PORT } else { "3307" }
+        Write-Host "Connecting backend to MySQL on port: $mysqlPort"
+
         cd backend
         mvn clean package -DskipTests
-        Start-Process powershell -ArgumentList "-Command", "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:3307/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048" -WindowStyle Hidden
+        Start-Process powershell -ArgumentList "-Command", "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048" -WindowStyle Hidden
         Start-Sleep -Seconds 20
 
     - name: Install Frontend Dependencies
