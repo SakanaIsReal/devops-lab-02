@@ -266,7 +266,7 @@ jobs:
           Write-Host "Network might already exist (ignored)"
         }
 
-        # Try starting MySQL on primary port
+        # Try starting MySQL on primary port with health check configured
         Write-Host "`nAttempting to start MySQL container on port ${primaryPort}..."
         $dockerOutput = docker run -d `
           --name mysql-ci `
@@ -274,6 +274,10 @@ jobs:
           -e MYSQL_ROOT_PASSWORD=rootpassword `
           -e MYSQL_DATABASE=smartsplit-db `
           -p "${primaryPort}:3306" `
+          --health-cmd='mysqladmin ping -h localhost -u root -prootpassword --silent' `
+          --health-interval=10s `
+          --health-timeout=5s `
+          --health-retries=5 `
           mysql:8.0 2>&1
 
         if ($LASTEXITCODE -ne 0) {
@@ -294,6 +298,10 @@ jobs:
             -e MYSQL_ROOT_PASSWORD=rootpassword `
             -e MYSQL_DATABASE=smartsplit-db `
             -p "${fallbackPort}:3306" `
+            --health-cmd='mysqladmin ping -h localhost -u root -prootpassword --silent' `
+            --health-interval=10s `
+            --health-timeout=5s `
+            --health-retries=5 `
             mysql:8.0 2>&1
 
           if ($LASTEXITCODE -ne 0) {
@@ -323,26 +331,34 @@ jobs:
         $containerStatus = docker ps --filter name=mysql-ci --format "{{.Status}}"
         Write-Host "Container status: $containerStatus"
 
-        Write-Host "`nWaiting for MySQL to be ready..."
-        Start-Sleep -Seconds 30
+        Write-Host "`nWaiting for MySQL to be healthy (via Docker health check)..."
 
-        # Verify MySQL is responding
-        $maxAttempts = 10
+        # Wait for Docker health check to report healthy status
+        $maxAttempts = 20
         $attempt = 0
         while ($attempt -lt $maxAttempts) {
-          $result = docker exec mysql-ci mysqladmin ping -h localhost -u root -prootpassword 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "MySQL is ready and responding to queries"
+          $healthStatus = docker inspect --format='{{.State.Health.Status}}' mysql-ci 2>$null
+
+          if ($healthStatus -eq "healthy") {
+            Write-Host "MySQL is healthy and ready to accept connections"
             break
+          } elseif ($healthStatus -eq "unhealthy") {
+            Write-Error "MySQL health check failed"
+            Write-Host "Container logs:"
+            docker logs mysql-ci --tail 50
+            exit 1
+          } else {
+            $attempt++
+            Write-Host "MySQL health status: $healthStatus (Attempt $attempt/$maxAttempts)"
+            Start-Sleep -Seconds 3
           }
-          $attempt++
-          Write-Host "Waiting for MySQL to respond... (Attempt $attempt/$maxAttempts)"
-          Start-Sleep -Seconds 3
         }
+
         if ($attempt -eq $maxAttempts) {
-          Write-Error "MySQL failed to become ready"
+          Write-Error "MySQL failed to become healthy within timeout"
+          Write-Host "Final health status: $healthStatus"
           Write-Host "Container logs:"
-          docker logs mysql-ci
+          docker logs mysql-ci --tail 50
           exit 1
         }
 
