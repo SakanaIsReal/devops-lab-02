@@ -56,5 +56,5 @@
     "react-scripts": "^5.0.1",
     "tailwindcss": "^3.4.17"
   },
-  "proxy": "http://127.0.0.1:16048"
+  "proxy": "http://localhost:8081"
 }
