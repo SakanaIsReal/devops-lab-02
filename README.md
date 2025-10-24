@@ -12,6 +12,7 @@ SmartSplit is a full-stack web application for managing and splitting expenses a
 
 - [Features](#features)
 - [Tech Stack](#tech-stack)
+- [Documentation](#documentation)
 - [Project Architecture](#project-architecture)
 - [Quick Start](#quick-start)
   - [Prerequisites](#prerequisites)
@@ -61,6 +62,41 @@ SmartSplit is a full-stack web application for managing and splitting expenses a
 - **Orchestration**: Kubernetes (Minikube)
 - **CI/CD**: GitHub Actions
 - **Container Registry**: Docker Hub
+
+## Documentation
+
+Comprehensive documentation is available for different aspects of the project:
+
+- **[CLAUDE.md](CLAUDE.md)** - Project instructions and guidance for Claude Code, including:
+  - Core architecture and project structure
+  - Development commands for backend and frontend
+  - Testing strategies and E2E test configuration
+  - Docker image tagging strategy
+  - Environment variable configuration
+
+- **[KUBERNETES.md](KUBERNETES.md)** - Complete Kubernetes deployment guide covering:
+  - Architecture and resource overview
+  - Prerequisites and installation
+  - Quick start deployment options
+  - Detailed resource documentation (ConfigMap, Secrets, Deployments)
+  - Monitoring and management commands
+  - Troubleshooting common issues
+  - Advanced operations (backup/restore, scaling, security)
+
+- **[CICD_PROCESS.md](CICD_PROCESS.md)** - CI/CD pipeline documentation including:
+  - Pipeline architecture and stages
+  - Test stage (unit tests)
+  - E2E test stage (Cypress integration)
+  - Build and push stage (Docker images)
+  - Deploy stage (Kubernetes deployment)
+  - Image tagging strategy and rollback procedures
+  - Troubleshooting pipeline failures
+
+- **[frontend/README.md](frontend/README.md)** - Create React App documentation with:
+  - Available npm scripts
+  - Development mode instructions
+  - Build and deployment information
+  - Testing and configuration options
 
 ## Project Architecture
 
@@ -339,6 +375,8 @@ Choose the setup that best fits your development workflow:
 
 2. **Deploy application:**
    ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+
    # Windows
    .\deploy-minikube.ps1
 
