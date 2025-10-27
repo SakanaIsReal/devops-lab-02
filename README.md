@@ -479,6 +479,61 @@ Choose the setup that best fits your development workflow:
    docker exec -it smartsplit-mysql-dev mysql -uroot -pgg smartsplit-db -e "SELECT * FROM flyway_schema_history;"
    ```
 
+### Applying Database Schema Updates (Clean Slate)
+
+When the database schema has been updated (e.g., new columns added to existing tables), you need to rebuild your local Docker environment from scratch:
+
+**Important:** This will delete all existing data in your local database. Use this for development environments only.
+
+**Steps:**
+
+1. **Stop all containers:**
+   ```powershell
+   docker-compose down
+   ```
+
+2. **Remove database and uploads volumes:**
+   ```powershell
+   docker volume rm devops-lab-02_dbdata
+   docker volume rm devops-lab-02_uploads_data
+   ```
+
+3. **Rebuild and restart with new schema:**
+   ```powershell
+   docker-compose up --build -d
+   ```
+
+4. **Verify services are healthy:**
+   ```powershell
+   docker-compose ps
+   ```
+
+5. **Check backend health:**
+   ```powershell
+   # Wait for backend to be fully started (may take 30-60 seconds)
+   # Then check health endpoint
+   curl http://localhost:8081/actuator/health
+   ```
+
+6. **Verify new schema (example for users table):**
+   ```powershell
+   docker exec devops-lab-02-db-1 mysql -uroot -pgg smartsplit-db -e "DESCRIBE users;"
+   ```
+
+**What this does:**
+- Stops and removes all Docker containers
+- Deletes the database volume (removes all data and old schema)
+- Deletes the uploads volume (removes all uploaded files)
+- Rebuilds Docker images with latest code
+- Starts fresh containers with Flyway automatically applying the latest migrations
+- Creates database tables with the new schema from scratch
+
+**When to use:**
+- After pulling changes that include Flyway migration updates
+- When new columns are added to existing tables
+- When database structure changes significantly
+- When you want to start with a clean database for testing
+
 ## Testing
 
 ### Backend Testing

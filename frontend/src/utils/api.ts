@@ -8,6 +8,48 @@ const api = axios.create({
     baseURL: API_BASE_URL,
 });
 
+// In-memory cache for loaded images (base64 data URLs)
+const imageCache = new Map<string, string>();
+
+/**
+ * Resolves image URLs to base64 data URLs
+ * - If URL is already a data URL (starts with 'data:'), returns it as-is
+ * - If URL is a reference URL (e.g., /files/{id}), fetches and caches the base64
+ * - Returns empty string if URL is undefined or fetch fails
+ */
+async function resolveImageUrl(url: string | undefined): Promise<string> {
+    if (!url || url.trim() === '') return '';
+
+    // Already a data URL, return as-is
+    if (url.startsWith('data:')) return url;
+
+    // Check cache first
+    if (imageCache.has(url)) {
+        return imageCache.get(url)!;
+    }
+
+    try {
+        // Fetch the base64 data from the backend
+        const response = await api.get(url.replace(API_BASE_URL, ''), {
+            responseType: 'text'
+        });
+
+        const dataUrl = response.data;
+
+        // Validate it's a proper data URL
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+            imageCache.set(url, dataUrl);
+            return dataUrl;
+        }
+
+        console.warn('Invalid data URL received from:', url);
+        return '';
+    } catch (error) {
+        console.error('Failed to load image from:', url, error);
+        return '';
+    }
+}
+
 export const getBalances = async (): Promise<Balance[]> => {
     const response = await api.get('/me/balances');
     return response.data;
@@ -39,6 +81,11 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
 
     // Map API response to match your expected structure
     const apiResponse = response.data;
+
+    // Resolve user avatar and QR code images
+    const avatarUrl = await resolveImageUrl(apiResponse.avatarUrl);
+    const qrCodeUrl = await resolveImageUrl(apiResponse.qrCodeUrl);
+
     return {
         token: apiResponse.accessToken, // Map accessToken to token
         user: {
@@ -46,8 +93,8 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
             email: apiResponse.email,
             name: apiResponse.userName,
             phone: apiResponse.phone,
-            imageUrl: apiResponse.avatarUrl,
-            qrCodeUrl: apiResponse.qrCodeUrl
+            imageUrl: avatarUrl,
+            qrCodeUrl: qrCodeUrl
             // Add other properties as needed
         }
     };
@@ -70,7 +117,17 @@ export const signUpApi = async (
 };
 export const getUserInformation = async (userId: string | number,): Promise<any> => {
     const response = await api.get(`/users/${userId}`);
-    return response.data;
+    const userData = response.data;
+
+    // Resolve avatar and QR code images
+    if (userData.avatarUrl) {
+        userData.avatarUrl = await resolveImageUrl(userData.avatarUrl);
+    }
+    if (userData.qrCodeUrl) {
+        userData.qrCodeUrl = await resolveImageUrl(userData.qrCodeUrl);
+    }
+
+    return userData;
 };
 
 
@@ -81,7 +138,18 @@ export const getTransactions = async (): Promise<any[]> => {
 
 export const getGroups = async (): Promise<Group[]> => {
     const response = await api.get('/groups/mine');
-    return response.data;
+    const groups = response.data;
+
+    // Resolve all cover images in parallel
+    await Promise.all(
+        groups.map(async (group: Group) => {
+            if (group.coverImageUrl) {
+                group.coverImageUrl = await resolveImageUrl(group.coverImageUrl);
+            }
+        })
+    );
+
+    return groups;
 };
 
 
@@ -112,7 +180,14 @@ export const getExpenseSettlementsUserID = async (expenseId: string, userId : St
 
 export const getGroupDetails = async (groupId: string): Promise<Group> => {
     const response = await api.get(`/groups/${groupId}`);
-    return response.data;
+    const group = response.data;
+
+    // Resolve cover image URL to base64
+    if (group.coverImageUrl) {
+        group.coverImageUrl = await resolveImageUrl(group.coverImageUrl);
+    }
+
+    return group;
 };
 
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
@@ -270,6 +345,12 @@ export const createExpenseItemShare = async (
 
 export const getGroupById = async (groupId: number | string) => {
   const { data } = await api.get(`/groups/${groupId}`);
+
+  // Resolve cover image URL to base64
+  if (data.coverImageUrl) {
+    data.coverImageUrl = await resolveImageUrl(data.coverImageUrl);
+  }
+
   return data; // คาดว่า { id, name, ownerUserId, members: [...], coverImageUrl, ... }
 };
 
