@@ -19,6 +19,8 @@ type ExpenseItem = {
     sharedWith: number[];
     splitMethod: SplitMethod;
     percentages: { [personId: number]: number };
+    currency: string;
+    customCurrency: string;
 };
 
 type SplitMethod = "equal" | "percentage";
@@ -42,9 +44,38 @@ export default function ManualSplitPage() {
             sharedWith: [],
             splitMethod: "equal",
             percentages: {},
+            currency: "THB",
+            customCurrency: "",
         },
     ]);
     const navigate = useNavigate();
+
+    // Helper function to get currency symbol
+    const getCurrencySymbol = (currency: string): string => {
+        switch (currency.toUpperCase()) {
+            case "THB": return "฿";
+            case "USD": return "$";
+            case "JPY": return "¥";
+            default: return currency.toUpperCase();
+        }
+    };
+
+    // Get the active currency for an item (custom or selected)
+    const getItemCurrency = (item: ExpenseItem): string => {
+        return item.currency === "CUSTOM" && item.customCurrency.trim() !== ""
+            ? item.customCurrency.toUpperCase().slice(0, 3)
+            : item.currency;
+    };
+
+    // Handle currency dropdown change for an item
+    const handleItemCurrencyChange = (itemIndex: number, value: string) => {
+        const newItems = [...items];
+        newItems[itemIndex].currency = value;
+        if (value !== "CUSTOM") {
+            newItems[itemIndex].customCurrency = "";
+        }
+        setItems(newItems);
+    };
 
     useEffect(() => {
         const fetchParticipants = async () => {
@@ -118,7 +149,8 @@ export default function ManualSplitPage() {
                 try {
                     console.log("Processing item:", item);
 
-                    const createdItem = await createExpenseItem(expenseId, item.name, item.amount);
+                    const itemCurrency = getItemCurrency(item);
+                    const createdItem = await createExpenseItem(expenseId, item.name, item.amount, itemCurrency);
                     console.log("Created Item:", createdItem);
 
                     const itemId = createdItem.id;
@@ -179,6 +211,8 @@ export default function ManualSplitPage() {
                 sharedWith: [],
                 splitMethod: "equal",
                 percentages: {},
+                currency: "THB",
+                customCurrency: "",
             },
         ]);
     };
@@ -269,18 +303,38 @@ export default function ManualSplitPage() {
                     value={expenseName}
                     onChange={(e) => setExpenseName(e.target.value)}
                     placeholder="Enter your expense name (e.g. Dinner)"
-                    className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100 
+                    className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100
                      focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {/* Total Expense Display */}
                 <label className="text-gray-700 font-medium">Total Expense</label>
-                <div className="w-full p-3 mb-4 mt-2 border-none rounded-xl bg-gray-100 flex items-center gap-5">
-                    <span className="text-lg">
-                        ฿
-                        {items
-                            .reduce((acc, item) => acc + parseFloat(item.amount || "0"), 0)
-                            .toFixed(2)}
-                    </span>
+                <div className="w-full p-3 mb-4 mt-2 border-none rounded-xl bg-gray-100">
+                    {(() => {
+                        // Group items by currency
+                        const currencyTotals = items.reduce((acc, item) => {
+                            const currency = getItemCurrency(item);
+                            const amount = parseFloat(item.amount || "0");
+                            if (!acc[currency]) {
+                                acc[currency] = 0;
+                            }
+                            acc[currency] += amount;
+                            return acc;
+                        }, {} as { [key: string]: number });
+
+                        return (
+                            <div className="flex flex-col gap-1">
+                                {Object.entries(currencyTotals).map(([currency, total]) => (
+                                    <span key={currency} className="text-lg">
+                                        {getCurrencySymbol(currency)}
+                                        {total.toFixed(2)}
+                                        {Object.keys(currencyTotals).length > 1 && (
+                                            <span className="text-sm text-gray-500 ml-1">({currency})</span>
+                                        )}
+                                    </span>
+                                ))}
+                            </div>
+                        );
+                    })()}
                 </div>
                 {/* Items List */}
                 <div className="mb-6">
@@ -329,7 +383,35 @@ export default function ManualSplitPage() {
                                 />
                             </div>
 
+                            {/* Currency Selector */}
+                            <div className="mb-3">
+                                <p className="text-sm font-medium text-gray-700 mb-2">Currency</p>
+                                <select
+                                    value={item.currency}
+                                    onChange={(e) => handleItemCurrencyChange(index, e.target.value)}
+                                    className="w-full p-2 border-none rounded-lg bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                >
+                                    <option value="THB">THB (฿)</option>
+                                    <option value="USD">USD ($)</option>
+                                    <option value="JPY">JPY (¥)</option>
+                                    <option value="CUSTOM">Custom</option>
+                                </select>
+                                {/* Custom Currency Input */}
+                                {item.currency === "CUSTOM" && (
+                                    <input
+                                        type="text"
+                                        value={item.customCurrency}
+                                        onChange={(e) => updateItem(index, "customCurrency", e.target.value.toUpperCase().slice(0, 3))}
+                                        placeholder="e.g., EUR, GBP"
+                                        maxLength={3}
+                                        className="w-full p-2 mt-2 border-none rounded-lg bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    />
+                                )}
+                            </div>
+
                             {/* Participants */}
+                            <div className="mb-3">
+                                <p className="text-sm font-medium text-gray-700 mb-2">Participants</p>
                             {(item.splitMethod === "equal" || item.splitMethod === "percentage") && (
                                 <div className="mb-3 flex gap-3">
                                     <div className="relative w-full">
@@ -341,7 +423,7 @@ export default function ManualSplitPage() {
                                                             .filter((p) => item.sharedWith.includes(p.id))
                                                             .map((p) => p.name)
                                                             .join(", ")}`
-                                                        : "Participants"}
+                                                        : "Add paticipants"}
                                                 </span>
                                             </summary>
                                             <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2">
@@ -364,6 +446,7 @@ export default function ManualSplitPage() {
                                     </div>
                                 </div>
                             )}
+                            </div>
 
                             {/* Percentage Details */}
                             {item.splitMethod === "percentage" && item.sharedWith.length > 0 && (

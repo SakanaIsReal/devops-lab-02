@@ -292,11 +292,15 @@ export const createExpenseApi = async (expenseData: {
 export const createExpenseItem = async (
     expenseId: number,
     name: string,
-    amount: string
+    amount: string,
+    currency?: string
 ) => {
     const formData = new URLSearchParams();
     formData.append("name", name);
     formData.append("amount", amount);
+    if (currency) {
+        formData.append("currency", currency);
+    }
 
     const res = await api.post(
         `/expenses/${expenseId}/items`,
