@@ -52,7 +52,18 @@ async function resolveImageUrl(url: string | undefined): Promise<string> {
 
 export const getBalances = async (): Promise<Balance[]> => {
     const response = await api.get('/me/balances');
-    return response.data;
+    const balances = response.data;
+
+    // Resolve all counterparty avatar images in parallel
+    await Promise.all(
+        balances.map(async (balance: Balance) => {
+            if (balance.counterpartyAvatarUrl) {
+                balance.counterpartyAvatarUrl = await resolveImageUrl(balance.counterpartyAvatarUrl);
+            }
+        })
+    );
+
+    return balances;
 };
 
 // utils/api.ts
