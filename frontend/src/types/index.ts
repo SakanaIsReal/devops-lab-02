@@ -94,6 +94,7 @@ export interface PaymentDetails {
   payerName: string;
   amountToPay: number;
   qrCodeUrl: string;
+  phone?: string;
   // Add settlement-specific fields
   expenseId?: number;
   userId?: number;

@@ -612,22 +612,25 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
     // Then, get user information of the payer to populate payer name and QR code
     let payerName = `User ${payerId}`;
     let qrCodeUrl = '';
-    
+    let phone = '';
+
     try {
         const payerInfo = await getUserInformation(payerId.toString());
         payerName = payerInfo.name || payerInfo.userName || payerName;
         qrCodeUrl = payerInfo.qrCodeUrl || payerInfo.qrCode || '';
+        phone = payerInfo.phone || '';
     } catch (error) {
         console.error("Error fetching payer info:", error);
         // Use default values if user info fetch fails
         qrCodeUrl = `https:/.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
     }
-    
+
     return {
         transactionId: expenseId,
         payerName: payerName,
         amountToPay: settlement.remaining, // Use the remaining amount
         qrCodeUrl: qrCodeUrl,
+        phone: phone,
         // Include settlement details for reference
         expenseId: settlement.expenseId,
         userId: settlement.userId,
