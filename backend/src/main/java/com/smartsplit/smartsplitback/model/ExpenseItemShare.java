@@ -26,9 +26,11 @@ public class ExpenseItemShare {
             foreignKey = @ForeignKey(name = "fk_item_share_participant"))
     private User participant;
 
-    // สามารถใช้แบบจำนวนเงิน หรือแบบเปอร์เซ็นต์ (อย่างใดอย่างหนึ่ง หรือทั้งคู่ถ้าธุรกิจอนุญาต)
     @Column(name = "share_value", precision = 19, scale = 2)
     private BigDecimal shareValue;
+
+    @Column(name = "share_original_value", precision = 19, scale = 2)
+    private BigDecimal shareOriginalValue;
 
     @Column(name = "share_percent", precision = 5, scale = 2)
     private BigDecimal sharePercent;
@@ -45,6 +47,9 @@ public class ExpenseItemShare {
 
     public BigDecimal getShareValue() { return shareValue; }
     public void setShareValue(BigDecimal shareValue) { this.shareValue = shareValue; }
+
+    public BigDecimal getShareOriginalValue() { return shareOriginalValue; }
+    public void setShareOriginalValue(BigDecimal shareOriginalValue) { this.shareOriginalValue = shareOriginalValue; }
 
     public BigDecimal getSharePercent() { return sharePercent; }
     public void setSharePercent(BigDecimal sharePercent) { this.sharePercent = sharePercent; }

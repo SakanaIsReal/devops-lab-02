@@ -29,23 +29,22 @@ class ExpenseItemServiceTest {
         MockitoAnnotations.openMocks(this);
     }
 
-    // ===== Helpers =====
     private static Expense newExpense(Long id) {
         Expense e = new Expense();
         e.setId(id);
         return e;
     }
 
-    private static ExpenseItem newItem(Long id, Expense e, String name, BigDecimal amount) {
+    private static ExpenseItem newItem(Long id, Expense e, String name, BigDecimal amount, String currency) {
         ExpenseItem it = new ExpenseItem();
         it.setId(id);
         it.setExpense(e);
         it.setName(name);
         it.setAmount(amount);
+        it.setCurrency(currency);
         return it;
     }
 
-    // =============================== listByExpense ===============================
     @Nested
     @DisplayName("listByExpense(expenseId)")
     class ListByExpense {
@@ -57,8 +56,8 @@ class ExpenseItemServiceTest {
             Expense e = newExpense(expenseId);
 
             List<ExpenseItem> mockList = List.of(
-                    newItem(1L, e, "A", new BigDecimal("10.50")),
-                    newItem(2L, e, "B", new BigDecimal("5.00"))
+                    newItem(1L, e, "A", new BigDecimal("10.50"), "THB"),
+                    newItem(2L, e, "B", new BigDecimal("5.00"), "USD")
             );
             when(items.findByExpense_Id(expenseId)).thenReturn(mockList);
 
@@ -67,6 +66,7 @@ class ExpenseItemServiceTest {
             assertThat(result).hasSize(2);
             assertThat(result.get(0).getName()).isEqualTo("A");
             assertThat(result.get(1).getAmount()).isEqualByComparingTo("5.00");
+            assertThat(result.get(1).getCurrency()).isEqualTo("USD");
 
             verify(items).findByExpense_Id(expenseId);
         }
@@ -84,7 +84,6 @@ class ExpenseItemServiceTest {
         }
     }
 
-    // =============================== getInExpense ===============================
     @Nested
     @DisplayName("getInExpense(expenseId, itemId)")
     class GetInExpense {
@@ -94,7 +93,7 @@ class ExpenseItemServiceTest {
         void found() {
             Long expenseId = 10L, itemId = 100L;
             Expense e = newExpense(expenseId);
-            ExpenseItem it = newItem(itemId, e, "X", new BigDecimal("1.00"));
+            ExpenseItem it = newItem(itemId, e, "X", new BigDecimal("1.00"), "THB");
 
             when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
 
@@ -118,14 +117,13 @@ class ExpenseItemServiceTest {
         }
     }
 
-    // =============================== create ===============================
     @Nested
-    @DisplayName("create(expenseId, name, amount)")
+    @DisplayName("create(expenseId, name, amount, currency)")
     class CreateItem {
 
         @Test
-        @DisplayName("happy path: expense มีอยู่ -> สร้าง item แล้ว save")
-        void createSuccess() {
+        @DisplayName("happy path: expense มีอยู่ -> สร้าง item แล้ว save (กำหนดสกุล)")
+        void createSuccess_withCurrency() {
             Long expenseId = 20L;
             Expense e = newExpense(expenseId);
 
@@ -136,19 +134,46 @@ class ExpenseItemServiceTest {
                 return arg;
             }).when(items).save(any(ExpenseItem.class));
 
-            ExpenseItem created = service.create(expenseId, "Milk", new BigDecimal("12.34"));
+            ExpenseItem created = service.create(expenseId, "Milk", new BigDecimal("12.34"), "USD");
 
             assertThat(created.getId()).isEqualTo(111L);
             assertThat(created.getExpense()).isSameAs(e);
             assertThat(created.getName()).isEqualTo("Milk");
             assertThat(created.getAmount()).isEqualByComparingTo("12.34");
+            assertThat(created.getCurrency()).isEqualTo("USD");
 
             verify(expenses).findById(expenseId);
             verify(items).save(argThat(it ->
                     it.getExpense() == e &&
                             "Milk".equals(it.getName()) &&
-                            new BigDecimal("12.34").compareTo(it.getAmount()) == 0
+                            new BigDecimal("12.34").compareTo(it.getAmount()) == 0 &&
+                            "USD".equals(it.getCurrency())
             ));
+        }
+
+        @Test
+        @DisplayName("กรณี currency = THB และค่า boundary: 0, 0.01, 9999999999.99")
+        void createAmountBoundaries() {
+            Long expenseId = 21L;
+            Expense e = newExpense(expenseId);
+            when(expenses.findById(expenseId)).thenReturn(Optional.of(e));
+            when(items.save(any(ExpenseItem.class))).thenAnswer(inv -> {
+                ExpenseItem arg = inv.getArgument(0, ExpenseItem.class);
+                if (arg.getId() == null) arg.setId(1L);
+                return arg;
+            });
+
+            ExpenseItem z = service.create(expenseId, "Z", new BigDecimal("0"), "THB");
+            assertThat(z.getAmount()).isEqualByComparingTo("0");
+            assertThat(z.getCurrency()).isEqualTo("THB");
+
+            ExpenseItem cent = service.create(expenseId, "C", new BigDecimal("0.01"), "THB");
+            assertThat(cent.getAmount()).isEqualByComparingTo("0.01");
+
+            ExpenseItem big = service.create(expenseId, "B", new BigDecimal("9999999999.99"), "THB");
+            assertThat(big.getAmount()).isEqualByComparingTo("9999999999.99");
+
+            verify(items, times(3)).save(any(ExpenseItem.class));
         }
 
         @Test
@@ -158,7 +183,7 @@ class ExpenseItemServiceTest {
             when(expenses.findById(expenseId)).thenReturn(Optional.empty());
 
             ResponseStatusException ex = catchThrowableOfType(
-                    () -> service.create(expenseId, "X", new BigDecimal("1.0")),
+                    () -> service.create(expenseId, "X", new BigDecimal("1.0"), "THB"),
                     ResponseStatusException.class
             );
             assertThat(ex.getStatusCode().value()).isEqualTo(HttpStatus.NOT_FOUND.value());
@@ -169,34 +194,54 @@ class ExpenseItemServiceTest {
         }
     }
 
-    // =============================== updateInExpense ===============================
     @Nested
-    @DisplayName("updateInExpense(expenseId, itemId, name, amount)")
+    @DisplayName("updateInExpense(expenseId, itemId, name, amount, currency)")
     class UpdateInExpense {
 
         @Test
-        @DisplayName("happy path: พบ item ใน expense -> อัปเดตเฉพาะฟิลด์ที่ไม่ null แล้ว save")
-        void updateSuccess_partialFields() {
+        @DisplayName("พบ item -> อัปเดตแบบ partial: name, amount, currency ทีละฟิลด์")
+        void updatePartialFields() {
             Long expenseId = 30L, itemId = 300L;
             Expense e = newExpense(expenseId);
-            ExpenseItem it = newItem(itemId, e, "Old", new BigDecimal("10.00"));
+            ExpenseItem it = newItem(itemId, e, "Old", new BigDecimal("10.00"), "THB");
 
             when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
             when(items.save(any(ExpenseItem.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            // อัปเดตเฉพาะ name (amount เป็น null)
-            ExpenseItem updated = service.updateInExpense(expenseId, itemId, "NewName", null);
-
+            ExpenseItem updated = service.updateInExpense(expenseId, itemId, "NewName", null, null);
             assertThat(updated.getName()).isEqualTo("NewName");
             assertThat(updated.getAmount()).isEqualByComparingTo("10.00");
+            assertThat(updated.getCurrency()).isEqualTo("THB");
 
-            // อัปเดตเฉพาะ amount (name เป็น null)
-            updated = service.updateInExpense(expenseId, itemId, null, new BigDecimal("12.50"));
+            updated = service.updateInExpense(expenseId, itemId, null, new BigDecimal("12.50"), null);
             assertThat(updated.getName()).isEqualTo("NewName");
             assertThat(updated.getAmount()).isEqualByComparingTo("12.50");
+            assertThat(updated.getCurrency()).isEqualTo("THB");
 
-            verify(items, times(2)).findByIdAndExpense_Id(itemId, expenseId);
-            verify(items, times(2)).save(any(ExpenseItem.class));
+            updated = service.updateInExpense(expenseId, itemId, null, null, "USD");
+            assertThat(updated.getCurrency()).isEqualTo("USD");
+
+            verify(items, times(3)).findByIdAndExpense_Id(itemId, expenseId);
+            verify(items, times(3)).save(any(ExpenseItem.class));
+        }
+
+        @Test
+        @DisplayName("อัปเดตพร้อมกันทุกฟิลด์")
+        void updateAllFields() {
+            Long expenseId = 31L, itemId = 310L;
+            Expense e = newExpense(expenseId);
+            ExpenseItem it = newItem(itemId, e, "Old", new BigDecimal("1.00"), "THB");
+
+            when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
+            when(items.save(any(ExpenseItem.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            ExpenseItem updated = service.updateInExpense(expenseId, itemId, "ALL", new BigDecimal("2.22"), "EUR");
+            assertThat(updated.getName()).isEqualTo("ALL");
+            assertThat(updated.getAmount()).isEqualByComparingTo("2.22");
+            assertThat(updated.getCurrency()).isEqualTo("EUR");
+
+            verify(items).findByIdAndExpense_Id(itemId, expenseId);
+            verify(items).save(any(ExpenseItem.class));
         }
 
         @Test
@@ -206,7 +251,7 @@ class ExpenseItemServiceTest {
             when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.empty());
 
             ResponseStatusException ex = catchThrowableOfType(
-                    () -> service.updateInExpense(expenseId, itemId, "N", new BigDecimal("1.0")),
+                    () -> service.updateInExpense(expenseId, itemId, "N", new BigDecimal("1.0"), "THB"),
                     ResponseStatusException.class
             );
             assertThat(ex.getStatusCode().value()).isEqualTo(HttpStatus.NOT_FOUND.value());
@@ -217,7 +262,6 @@ class ExpenseItemServiceTest {
         }
     }
 
-    // =============================== deleteInExpense ===============================
     @Nested
     @DisplayName("deleteInExpense(expenseId, itemId)")
     class DeleteInExpense {
@@ -252,7 +296,6 @@ class ExpenseItemServiceTest {
         }
     }
 
-    // =============================== sumItems ===============================
     @Nested
     @DisplayName("sumItems(expenseId)")
     class SumItems {
@@ -268,9 +311,20 @@ class ExpenseItemServiceTest {
 
             verify(items).sumAmountByExpenseId(expenseId);
         }
+
+        @Test
+        @DisplayName("repo คืน null -> รีเทิร์น 0")
+        void sumNullAsZero() {
+            Long expenseId = 51L;
+            when(items.sumAmountByExpenseId(expenseId)).thenReturn(null);
+
+            BigDecimal sum = service.sumItems(expenseId);
+            assertThat(sum).isEqualByComparingTo("0");
+
+            verify(items).sumAmountByExpenseId(expenseId);
+        }
     }
 
-    // =============================== Deprecated methods ===============================
     @Nested
     @DisplayName("[Deprecated] get(id)")
     class DeprecatedGet {
@@ -280,7 +334,7 @@ class ExpenseItemServiceTest {
         void getFoundOrNull() {
             Long id = 60L;
             Expense e = newExpense(6L);
-            ExpenseItem it = newItem(id, e, "Dep", new BigDecimal("9.99"));
+            ExpenseItem it = newItem(id, e, "Dep", new BigDecimal("9.99"), "THB");
 
             when(items.findById(id)).thenReturn(Optional.of(it));
             when(items.findById(999L)).thenReturn(Optional.empty());
@@ -302,17 +356,16 @@ class ExpenseItemServiceTest {
         void updateOk() {
             Long itemId = 70L;
             Expense e = newExpense(7L);
-            ExpenseItem it = newItem(itemId, e, "Old", new BigDecimal("10.00"));
+            ExpenseItem it = newItem(itemId, e, "Old", new BigDecimal("10.00"), "THB");
 
             when(items.findById(itemId)).thenReturn(Optional.of(it));
             when(items.save(any(ExpenseItem.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            // เปลี่ยนชื่อเท่านั้น
             ExpenseItem updated = service.update(itemId, "New", null);
             assertThat(updated.getName()).isEqualTo("New");
             assertThat(updated.getAmount()).isEqualByComparingTo("10.00");
+            assertThat(updated.getCurrency()).isEqualTo("THB");
 
-            // เปลี่ยนจำนวนเท่านั้น
             updated = service.update(itemId, null, new BigDecimal("15.25"));
             assertThat(updated.getName()).isEqualTo("New");
             assertThat(updated.getAmount()).isEqualByComparingTo("15.25");

@@ -22,7 +22,6 @@ public class Expense {
     @Column(name = "expense_id")
     private Long id;
 
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "group_id", nullable = false,
             foreignKey = @ForeignKey(name = "fk_expenses_group"))
@@ -49,19 +48,18 @@ public class Expense {
 
     @Column(name="created_at", nullable=false)
     private LocalDateTime createdAt;
+    
+    @Lob
+    @Column(name="exchange_rates_json", columnDefinition = "TEXT")
+    private String exchangeRatesJson;
 
     @PrePersist void onCreate(){ if(createdAt==null) createdAt=LocalDateTime.now(); }
-
-
-
 
     @OneToMany(mappedBy = "expense", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExpenseItem> items = new ArrayList<>();
 
-
     @OneToMany(mappedBy = "expense", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExpensePayment> payments = new ArrayList<>();
-
 
     public void addItem(ExpenseItem item){
         items.add(item);
@@ -71,7 +69,6 @@ public class Expense {
         items.remove(item);
         item.setExpense(null);
     }
-
     public void addPayment(ExpensePayment p){
         payments.add(p);
         p.setExpense(this);
@@ -80,8 +77,6 @@ public class Expense {
         payments.remove(p);
         p.setExpense(null);
     }
-
-
 
     @Transient
     public BigDecimal getItemsTotal(){
@@ -105,14 +100,12 @@ public class Expense {
         return sum;
     }
 
-    /** (3) ดึง expense_items ทั้งหมดของ expense นี้ */
     @Transient
     public List<ExpenseItem> getExpenseItems(){
         return items;
     }
 
-    /* -------------------- getters/setters/equals/hash -------------------- */
-
+    // getters/setters/equals/hash
     public Long getId(){ return id; } public void setId(Long id){ this.id=id; }
     public Group getGroup(){ return group; } public void setGroup(Group group){ this.group=group; }
     public User getPayer(){ return payer; } public void setPayer(User payer){ this.payer=payer; }
@@ -121,6 +114,9 @@ public class Expense {
     public String getTitle(){ return title; } public void setTitle(String title){ this.title=title; }
     public ExpenseStatus getStatus(){ return status; } public void setStatus(ExpenseStatus status){ this.status=status; }
     public LocalDateTime getCreatedAt(){ return createdAt; } public void setCreatedAt(LocalDateTime createdAt){ this.createdAt=createdAt; }
+
+    public String getExchangeRatesJson() { return exchangeRatesJson; }
+    public void setExchangeRatesJson(String exchangeRatesJson) { this.exchangeRatesJson = exchangeRatesJson; }
 
     public List<ExpenseItem> getItems() { return items; }
     public void setItems(List<ExpenseItem> items) { this.items = items; }

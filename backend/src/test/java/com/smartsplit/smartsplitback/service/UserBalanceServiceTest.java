@@ -121,6 +121,34 @@ class UserBalanceServiceTest {
             verify(repo).findBalancesForUser(9L);
             verifyNoMoreInteractions(repo);
         }
+
+        @Test
+        @DisplayName("รองรับกรณี external share: ผู้ใช้ไม่อยู่ในกลุ่ม แต่มีชื่ออยู่ใน item share → ยังคงแมปแถวได้")
+        void external_share_rows_are_mapped() {
+            Long userId = 88L;
+            // จำลองว่าผลลัพธ์มาจากการมีชื่อใน item share อย่างเดียว (ไม่ใช่สมาชิกกลุ่ม)
+            // ข้อมูล groupId/groupName ยังมาจาก expense เดิมตาม query ใหม่
+            List<BalanceRowProjection> rows = List.of(
+                    new Row("YOU_OWE",  999L, "OwnerX", null, 777L, "ExtGroup", 3001L, "ExtExpense-1", new BigDecimal("20.00")),
+                    new Row("OWES_YOU", 555L, "FriendY", null, 777L, "ExtGroup", 3002L, "ExtExpense-2", new BigDecimal("40.50"))
+            );
+            when(repo.findBalancesForUser(userId)).thenReturn(rows);
+
+            var dtos = service.listBalances(userId);
+
+            assertThat(dtos).hasSize(2);
+            assertThat(dtos.get(0).direction()).isEqualTo("YOU_OWE");
+            assertThat(dtos.get(0).groupId()).isEqualTo(777L);
+            assertThat(dtos.get(0).expenseTitle()).isEqualTo("ExtExpense-1");
+            assertThat(dtos.get(0).remaining()).isEqualByComparingTo("20.00");
+
+            assertThat(dtos.get(1).direction()).isEqualTo("OWES_YOU");
+            assertThat(dtos.get(1).counterpartyUserName()).isEqualTo("FriendY");
+            assertThat(dtos.get(1).remaining()).isEqualByComparingTo("40.50");
+
+            verify(repo).findBalancesForUser(userId);
+            verifyNoMoreInteractions(repo);
+        }
     }
 
     // ========================= summary(userId) =========================
@@ -199,6 +227,25 @@ class UserBalanceServiceTest {
 
             assertThat(sum.youOweTotal()).isEqualByComparingTo("0.00");
             assertThat(sum.youAreOwedTotal()).isEqualByComparingTo("0.00");
+        }
+
+        @Test
+        @DisplayName("รองรับ external share: แม้ผู้ใช้ไม่อยู่ในกลุ่ม แต่มีชื่อใน item share → รวมยอดตาม direction ได้ปกติ")
+        void includes_external_share_in_totals() {
+            Long userId = 123L;
+            // สมมติผู้ใช้ 123 ไม่ใช่สมาชิกกลุ่ม แต่มี share ใน expense ต่าง ๆ
+            List<BalanceRowProjection> rows = List.of(
+                    new Row("YOU_OWE",  900L, "OwnerOut", null, 700L, "ExtG", 5000L, "ExtE1", new BigDecimal("10.00")),
+                    new Row("OWES_YOU", 800L, "FriendOut", null, 700L, "ExtG", 5001L, "ExtE2", new BigDecimal("25.50"))
+            );
+            when(repo.findBalancesForUser(userId)).thenReturn(rows);
+
+            BalanceSummaryDto sum = service.summary(userId);
+
+            assertThat(sum.youOweTotal()).isEqualByComparingTo("10.00");
+            assertThat(sum.youAreOwedTotal()).isEqualByComparingTo("25.50");
+            verify(repo).findBalancesForUser(userId);
+            verifyNoMoreInteractions(repo);
         }
     }
 }

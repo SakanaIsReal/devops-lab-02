@@ -17,7 +17,6 @@ services:
       retries: 10
     restart: always
 
-  # job สร้าง DB ถ้ายังไม่มี (รันครั้งเดียวแล้วจบ)
   db-init:
     image: mysql:8
     depends_on:
@@ -51,8 +50,6 @@ services:
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 200MB
     ports:
       - "8081:8081"
-    volumes:
-      - uploads_data:/app/uploads
 
     restart: always
 

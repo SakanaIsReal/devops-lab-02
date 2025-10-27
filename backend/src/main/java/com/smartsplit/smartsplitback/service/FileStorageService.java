@@ -1,84 +1,102 @@
 package com.smartsplit.smartsplitback.service;
 
+import com.smartsplit.smartsplitback.model.StoredFile;
+import com.smartsplit.smartsplitback.repository.StoredFileRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-import java.io.IOException;
-import java.nio.file.*;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.Base64;
+import java.util.Locale;
 
 @Service
 public class FileStorageService {
 
+    private final StoredFileRepository repo;
 
-    private final Path root;
-
-    public FileStorageService(@Value("${app.upload-dir:uploads}") String uploadDir) {
-        this.root = Paths.get(uploadDir).toAbsolutePath().normalize();
+    public FileStorageService(StoredFileRepository repo) {
+        this.repo = repo;
     }
-
 
     public String save(MultipartFile file, String folder, String preferredFileName, HttpServletRequest req) {
         if (file == null || file.isEmpty()) return null;
-
         try {
+            byte[] bytes = file.getBytes();
 
-            String safeFolder = sanitize(folder);
-            Path dir = root.resolve(safeFolder);
-            Files.createDirectories(dir);
+            String orig = file.getOriginalFilename();
+            String ext  = getExtension(orig);
 
+            String contentType = file.getContentType();
+            if (contentType == null || contentType.isBlank()) {
+                String key = (ext == null ? "" : ext.toLowerCase(Locale.ROOT));
+                contentType = switch (key) {
+                    case "png" -> "image/png";
+                    case "jpg", "jpeg" -> "image/jpeg";
+                    case "gif" -> "image/gif";
+                    case "webp" -> "image/webp";
+                    case "svg" -> "image/svg+xml";
+                    case "pdf" -> "application/pdf";
+                    default -> "application/octet-stream";
+                };
+            }
 
-            String ext = getExtension(Objects.requireNonNullElse(file.getOriginalFilename(), ""));
-            String baseName = (preferredFileName != null && !preferredFileName.isBlank())
-                    ? sanitize(preferredFileName)
-                    : UUID.randomUUID().toString();
-            String finalName = ext.isBlank() ? baseName : (baseName + "." + ext);
+            String base64 = Base64.getEncoder().encodeToString(bytes);
+            String dataUrl = "data:" + contentType + ";base64," + base64;
 
+            StoredFile sf = new StoredFile();
+            sf.setFolder((folder == null || folder.isBlank()) ? "misc" : folder);
+            sf.setOriginalName((preferredFileName != null && !preferredFileName.isBlank()) ? preferredFileName : orig);
+            sf.setContentType(contentType);
+            sf.setExt(ext);
+            sf.setSizeBytes((long) bytes.length);
+            sf.setDataUrl(dataUrl);
 
-            Path target = dir.resolve(finalName);
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-
-
-            String url = ServletUriComponentsBuilder.fromRequestUri(req)
-                    .replacePath(null) // เคลียร์ path ปัจจุบัน
-                    .path("/files/")
-                    .path(safeFolder + "/")
-                    .path(finalName)
-                    .toUriString();
-            return url;
-        } catch (IOException e) {
-            throw new RuntimeException("Cannot store file: " + e.getMessage(), e);
+            repo.save(sf);
+            return buildPublicUrl(req, sf.getId());
+        } catch (Exception e) {
+            throw new RuntimeException("Cannot store file as base64: " + e.getMessage(), e);
         }
     }
 
     public boolean deleteByUrl(String publicUrl) {
         try {
             if (publicUrl == null || publicUrl.isBlank()) return false;
-
+            if (publicUrl.startsWith("data:")) return true;
 
             int idx = publicUrl.indexOf("/files/");
             if (idx < 0) return false;
-            String rel = publicUrl.substring(idx + "/files/".length()); // <folder>/<name>
 
-            Path target = root.resolve(rel).normalize();
-            if (!target.startsWith(root)) return false; // กัน path traversal
-            return java.nio.file.Files.deleteIfExists(target);
+            String tail = publicUrl.substring(idx + "/files/".length());
+            int q = tail.indexOf('?');
+            if (q >= 0) tail = tail.substring(0, q);
+            int slash = tail.indexOf('/');
+            if (slash >= 0) tail = tail.substring(0, slash);
+
+            Long id = Long.parseLong(tail);
+            if (!repo.existsById(id)) return false;
+            repo.deleteById(id);
+            return true;
         } catch (Exception ignore) {
             return false;
         }
     }
 
-    private String sanitize(String s) {
-        return s.replaceAll("[^a-zA-Z0-9._-]", "_");
+    private String buildPublicUrl(HttpServletRequest req, Long id) {
+        var serverReq = new ServletServerHttpRequest(req);
+        var uri = serverReq.getURI();
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        int port = uri.getPort();
+        String portPart = (port == -1 || ("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443))
+                ? "" : ":" + port;
+        return scheme + "://" + host + portPart + "/files/" + id;
     }
 
     private String getExtension(String name) {
+        if (name == null) return null;
         int dot = name.lastIndexOf('.');
-        if (dot <= 0 || dot == name.length() - 1) return "";
-        return name.substring(dot + 1);
+        if (dot <= 0 || dot == name.length() - 1) return null;
+        return name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 }

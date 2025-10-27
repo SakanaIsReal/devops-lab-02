@@ -7,6 +7,8 @@ public record UserCreateRequest(
         String phone,
         String avatarUrl,
         String qrCodeUrl,
-        String password,   // << ต้องมี
-        Integer role       // 0=ADMIN, 1=USER (ถ้าต้องการให้กำหนด)
+        String password,
+        Integer role,
+        String firstName,
+        String lastName
 ) {}

@@ -16,6 +16,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class ExpenseItemShareService {
@@ -25,17 +27,20 @@ public class ExpenseItemShareService {
     private final UserRepository users;
     private final GroupMemberRepository members;
     private final ExpenseRepository expenses;
+    private final ExchangeRateService fx; // 🔹 เพิ่ม
 
     public ExpenseItemShareService(ExpenseItemShareRepository shares,
                                    ExpenseItemRepository items,
                                    UserRepository users,
                                    GroupMemberRepository members,
-                                   ExpenseRepository expenses) {
+                                   ExpenseRepository expenses,
+                                   ExchangeRateService fx) { // 🔹 เพิ่ม
         this.shares = shares;
         this.items = items;
         this.users = users;
         this.members = members;
         this.expenses = expenses;
+        this.fx = fx; // 🔹 เพิ่ม
     }
 
     @Transactional(readOnly = true)
@@ -55,33 +60,32 @@ public class ExpenseItemShareService {
                                               Long participantUserId,
                                               BigDecimal shareValue,
                                               BigDecimal sharePercent) {
-        // ยืนยัน item อยู่ใต้ expense
         ExpenseItem item = items.findByIdAndExpense_Id(itemId, expenseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found in this expense"));
 
-        // ยืนยันผู้ใช้
         User user = users.findById(participantUserId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Participant user not found"));
 
-        // บังคับว่า participant เป็นสมาชิกกลุ่มของ expense นี้
-        Long groupId = expenses.findGroupIdByExpenseId(expenseId);
-        if (groupId == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid expense");
-        }
-        if (!members.existsByGroup_IdAndUser_Id(groupId, participantUserId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Participant is not a member of this group");
+        BigDecimal original;
+        if (sharePercent != null) {
+            original = percentToValue(item.getAmount(), sharePercent);
+        } else {
+            if (shareValue == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Either shareValue or sharePercent is required");
+            }
+            original = scaleMoney(shareValue);
         }
 
-        // คำนวณ value จาก percent ถ้ามี (priority)
-        BigDecimal finalValue = (sharePercent != null)
-                ? percentToValue(item.getAmount(), sharePercent)
-                : scaleMoney(shareValue);
+        String ccy = safeUpper(itemCurrency(item));
+        Map<String, BigDecimal> rates = fx.getRatesToThb(item.getExpense());
+        BigDecimal thb = fx.toThb(ccy, original, rates);
 
         ExpenseItemShare s = new ExpenseItemShare();
         s.setExpenseItem(item);
         s.setParticipant(user);
-        s.setShareValue(finalValue);
-        s.setSharePercent(sharePercent); // เก็บไว้เป็นข้อมูลอ้างอิงได้
+        s.setShareOriginalValue(original);
+        s.setShareValue(thb);
+        s.setSharePercent(sharePercent);
 
         return shares.save(s);
     }
@@ -96,16 +100,26 @@ public class ExpenseItemShareService {
                 .findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Share not found in this expense/item"));
 
-        // ถ้าส่ง percent มา → คำนวณจาก item.amount แล้วลง share_value
+        ExpenseItem item = s.getExpenseItem();
+        if (item == null) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Share inconsistent: missing item");
+        }
+
+        BigDecimal original = s.getShareOriginalValue();
         if (sharePercent != null) {
-            BigDecimal computed = percentToValue(s.getExpenseItem() != null ? s.getExpenseItem().getAmount() : null, sharePercent);
-            s.setShareValue(computed);
+
+            original = percentToValue(item.getAmount(), sharePercent);
             s.setSharePercent(sharePercent);
         } else if (shareValue != null) {
-            // ถ้าไม่ส่ง percent แต่ส่ง value → scale ให้เรียบร้อย
-            s.setShareValue(scaleMoney(shareValue));
+            original = scaleMoney(shareValue);
         }
-        // ถ้าไม่ส่งอะไรมาเลย → ไม่เปลี่ยนค่า
+
+        String ccy = safeUpper(itemCurrency(item));
+        Map<String, BigDecimal> rates = fx.getRatesToThb(item.getExpense());
+        BigDecimal thb = fx.toThb(ccy, original, rates);
+
+        s.setShareOriginalValue(original);
+        s.setShareValue(thb);
 
         return shares.save(s);
     }
@@ -126,12 +140,10 @@ public class ExpenseItemShareService {
         }
     }
 
-
     private BigDecimal scaleMoney(BigDecimal v) {
         if (v == null) return null;
         return v.setScale(2, RoundingMode.HALF_UP);
     }
-
 
     private BigDecimal percentToValue(BigDecimal itemAmount, BigDecimal percent) {
         BigDecimal base = (itemAmount != null) ? itemAmount : BigDecimal.ZERO;
@@ -140,7 +152,23 @@ public class ExpenseItemShareService {
         return base.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
     }
 
+    // ---------- helpers ----------
+    /** ดึงสกุลเงินจาก item; ถ้าไม่มี ให้ THB */
+    private String itemCurrency(ExpenseItem item) {
+        try {
+            var c = (String) ExpenseItem.class.getMethod("getCurrency").invoke(item);
+            return (c == null || c.isBlank()) ? "THB" : c;
+        } catch (Exception e) {
+            // กรณีโปรเจกต์บางเวอร์ชันยังไม่มี field currency ใน ExpenseItem
+            return "THB";
+        }
+    }
 
+    private String safeUpper(String s) {
+        return (s == null) ? null : s.toUpperCase(Locale.ROOT);
+    }
+
+    // --------- methods marked @Deprecated kept as-is ---------
 
     @Deprecated
     @Transactional(readOnly = true)
@@ -157,14 +185,19 @@ public class ExpenseItemShareService {
         User user = users.findById(participantUserId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Participant user not found"));
 
-        BigDecimal finalValue = (sharePercent != null)
+        BigDecimal original = (sharePercent != null)
                 ? percentToValue(item.getAmount(), sharePercent)
                 : scaleMoney(shareValue);
+
+        String ccy = safeUpper(itemCurrency(item));
+        Map<String, BigDecimal> rates = fx.getRatesToThb(item.getExpense());
+        BigDecimal thb = fx.toThb(ccy, original, rates);
 
         ExpenseItemShare s = new ExpenseItemShare();
         s.setExpenseItem(item);
         s.setParticipant(user);
-        s.setShareValue(finalValue);
+        s.setShareOriginalValue(original);
+        s.setShareValue(thb);
         s.setSharePercent(sharePercent);
         return shares.save(s);
     }
@@ -175,13 +208,25 @@ public class ExpenseItemShareService {
         ExpenseItemShare s = shares.findById(shareId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Share not found"));
 
+        ExpenseItem item = s.getExpenseItem();
+        if (item == null) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Share inconsistent: missing item");
+        }
+
+        BigDecimal original = s.getShareOriginalValue();
         if (sharePercent != null) {
-            BigDecimal computed = percentToValue(s.getExpenseItem() != null ? s.getExpenseItem().getAmount() : null, sharePercent);
-            s.setShareValue(computed);
+            original = percentToValue(item.getAmount(), sharePercent);
             s.setSharePercent(sharePercent);
         } else if (shareValue != null) {
-            s.setShareValue(scaleMoney(shareValue));
+            original = scaleMoney(shareValue);
         }
+
+        String ccy = safeUpper(itemCurrency(item));
+        Map<String, BigDecimal> rates = fx.getRatesToThb(item.getExpense());
+        BigDecimal thb = fx.toThb(ccy, original, rates);
+
+        s.setShareOriginalValue(original);
+        s.setShareValue(thb);
         return shares.save(s);
     }
 
