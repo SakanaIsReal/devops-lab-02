@@ -29,7 +29,7 @@ public interface ExpensePaymentRepository extends JpaRepository<ExpensePayment, 
     BigDecimal sumVerifiedAmountByExpenseIdAndUser(@Param("expenseId") Long expenseId,
                                                    @Param("userId") Long userId);
 
-    // ✅ รายชื่อผู้ที่มีการจ่าย VERIFIED ใน expense (เอาไว้ union กับคนที่มี share)
+    // รายชื่อผู้ที่มีการจ่าย VERIFIED ใน expense (เอาไว้ union กับคนที่มี share)
     @Query("""
            select distinct p.fromUser.id
            from ExpensePayment p
@@ -40,5 +40,5 @@ public interface ExpensePaymentRepository extends JpaRepository<ExpensePayment, 
     Optional<ExpensePayment> findByIdAndExpense_Id(Long paymentId, Long expenseId);
     boolean existsByIdAndExpense_Id(Long paymentId, Long expenseId);
 
-    
+
 }

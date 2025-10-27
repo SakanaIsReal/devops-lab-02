@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class ExpenseItemService {
@@ -23,13 +24,10 @@ public class ExpenseItemService {
         this.expenses = expenses;
     }
 
-
-
     @Transactional(readOnly = true)
     public List<ExpenseItem> listByExpense(Long expenseId) {
         return items.findByExpense_Id(expenseId);
     }
-
 
     @Transactional(readOnly = true)
     public ExpenseItem getInExpense(Long expenseId, Long itemId) {
@@ -37,10 +35,8 @@ public class ExpenseItemService {
                 .orElse(null);
     }
 
-
-
     @Transactional
-    public ExpenseItem create(Long expenseId, String name, BigDecimal amount) {
+    public ExpenseItem create(Long expenseId, String name, BigDecimal amount, String currency) {
         Expense e = expenses.findById(expenseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found"));
 
@@ -48,18 +44,20 @@ public class ExpenseItemService {
         item.setExpense(e);
         item.setName(name);
         item.setAmount(amount);
+        item.setCurrency(normalizeCcy(currency));
 
         return items.save(item);
     }
 
     @Transactional
-    public ExpenseItem updateInExpense(Long expenseId, Long itemId, String name, BigDecimal amount) {
+    public ExpenseItem updateInExpense(Long expenseId, Long itemId, String name, BigDecimal amount, String currency) {
         ExpenseItem item = items.findByIdAndExpense_Id(itemId, expenseId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Expense item not found in this expense"));
 
         if (name != null)   item.setName(name);
         if (amount != null) item.setAmount(amount);
+        if (currency != null && !currency.isBlank()) item.setCurrency(normalizeCcy(currency));
 
         return items.save(item);
     }
@@ -70,24 +68,21 @@ public class ExpenseItemService {
         if (!exists) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense item not found in this expense");
         }
-        items.deleteById(itemId); // shares ถูกลบด้วยเพราะ orphanRemoval
+        items.deleteById(itemId);
     }
-
 
     @Transactional(readOnly = true)
     public BigDecimal sumItems(Long expenseId) {
-        return items.sumAmountByExpenseId(expenseId);
+        BigDecimal sum = items.sumAmountByExpenseId(expenseId);
+        return (sum != null) ? sum : BigDecimal.ZERO;
     }
 
-
-    @Deprecated
-    @Transactional(readOnly = true)
+    @Deprecated @Transactional(readOnly = true)
     public ExpenseItem get(Long id) {
         return items.findById(id).orElse(null);
     }
 
-    @Deprecated
-    @Transactional
+    @Deprecated @Transactional
     public ExpenseItem update(Long itemId, String name, BigDecimal amount) {
         ExpenseItem item = items.findById(itemId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense item not found"));
@@ -96,12 +91,17 @@ public class ExpenseItemService {
         return items.save(item);
     }
 
-    @Deprecated
-    @Transactional
+    @Deprecated @Transactional
     public void delete(Long itemId) {
         if (!items.existsById(itemId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense item not found");
         }
         items.deleteById(itemId);
+    }
+
+    private String normalizeCcy(String ccy) {
+        String v = (ccy == null || ccy.isBlank()) ? "THB" : ccy.trim().toUpperCase(Locale.ROOT);
+        if (v.length() != 3) v = "THB";
+        return v;
     }
 }

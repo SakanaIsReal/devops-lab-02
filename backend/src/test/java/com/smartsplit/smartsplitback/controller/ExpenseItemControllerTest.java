@@ -1,4 +1,3 @@
-
 package com.smartsplit.smartsplitback.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,7 +6,9 @@ import com.smartsplit.smartsplitback.model.ExpenseItem;
 import com.smartsplit.smartsplitback.security.JwtAuthFilter;
 import com.smartsplit.smartsplitback.security.JwtService;
 import com.smartsplit.smartsplitback.security.Perms;
+import com.smartsplit.smartsplitback.service.ExchangeRateService;
 import com.smartsplit.smartsplitback.service.ExpenseItemService;
+import com.smartsplit.smartsplitback.repository.ExpenseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,18 +30,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SuppressWarnings("removal")
 @WebMvcTest(ExpenseItemController.class)
 @AutoConfigureMockMvc(addFilters = false)
-
 @Import({
         ExpenseItemControllerTest.MethodSecurityTestConfig.class,
         ExpenseItemControllerTest.MethodSecurityExceptionAdvice.class
@@ -62,22 +61,21 @@ class ExpenseItemControllerTest {
     @Autowired ObjectMapper objectMapper;
 
     @MockitoBean ExpenseItemService items;
-
+    @MockitoBean ExpenseRepository expenses;
+    @MockitoBean ExchangeRateService fx;
 
     @MockitoBean JwtAuthFilter jwtAuthFilter;
     @MockitoBean JwtService jwtService;
-
 
     @MockitoBean(name = "perm", answers = Answers.RETURNS_DEFAULTS)
     Perms perm;
 
     private Expense parent;
-    private ExpenseItem item1;
-    private ExpenseItem item2;
+    private ExpenseItem itemThb;
+    private ExpenseItem itemUsd;
 
     @BeforeEach
-    void setUp() {
-       
+    void setUp() throws Exception {
         when(perm.canViewExpense(anyLong())).thenReturn(true);
         when(perm.canViewExpenseItem(anyLong(), anyLong())).thenReturn(true);
         when(perm.canManageExpense(anyLong())).thenReturn(true);
@@ -86,25 +84,35 @@ class ExpenseItemControllerTest {
         parent = new Expense();
         parent.setId(100L);
 
-        item1 = new ExpenseItem();
-        item1.setId(200L);
-        item1.setName("Cola");
-        item1.setAmount(new BigDecimal("10.50"));
-        try { item1.getClass().getMethod("setExpense", Expense.class).invoke(item1, parent); } catch (Exception ignored) {}
+        itemThb = new ExpenseItem();
+        itemThb.setId(200L);
+        itemThb.setName("Cola");
+        itemThb.setAmount(new BigDecimal("10.50"));
+        itemThb.setCurrency("THB");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(itemThb, parent);
 
-        item2 = new ExpenseItem();
-        item2.setId(201L);
-        item2.setName("Burger");
-        item2.setAmount(new BigDecimal("45.00"));
-        try { item2.getClass().getMethod("setExpense", Expense.class).invoke(item2, parent); } catch (Exception ignored) {}
+        itemUsd = new ExpenseItem();
+        itemUsd.setId(201L);
+        itemUsd.setName("Burger");
+        itemUsd.setAmount(new BigDecimal("45.00"));
+        itemUsd.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(itemUsd, parent);
+
+        when(expenses.findById(100L)).thenReturn(java.util.Optional.of(parent));
+        when(fx.getRatesToThb(parent)).thenReturn(Map.of("THB", BigDecimal.ONE, "USD", new BigDecimal("36.00")));
+        when(fx.toThb(eq("THB"), any(BigDecimal.class), anyMap())).thenAnswer(inv -> inv.getArgument(1, BigDecimal.class));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("45.00")), anyMap())).thenReturn(new BigDecimal("1620.00"));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("15.00")), anyMap())).thenReturn(new BigDecimal("540.00"));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("2.50")), anyMap())).thenReturn(new BigDecimal("90.00"));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("1.00")), anyMap())).thenReturn(new BigDecimal("36.00"));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("0.01")), anyMap())).thenReturn(new BigDecimal("0.36"));
+        when(fx.toThb(eq("USD"), eq(new BigDecimal("9999999999.99")), anyMap())).thenReturn(new BigDecimal("359999999999.64"));
     }
 
-    // ---------- OK cases เดิม ----------
-
     @Test
-    @DisplayName("GET /api/expenses/{expenseId}/items -> list items")
+    @DisplayName("GET /api/expenses/{expenseId}/items -> list items with amountThb conversion")
     void list_items() throws Exception {
-        when(items.listByExpense(100L)).thenReturn(List.of(item1, item2));
+        when(items.listByExpense(100L)).thenReturn(List.of(itemThb, itemUsd));
 
         mockMvc.perform(get("/api/expenses/100/items"))
                 .andExpect(status().isOk())
@@ -114,22 +122,37 @@ class ExpenseItemControllerTest {
                 .andExpect(jsonPath("$[0].expenseId").value(100))
                 .andExpect(jsonPath("$[0].name").value("Cola"))
                 .andExpect(jsonPath("$[0].amount").value(10.50))
+                .andExpect(jsonPath("$[0].currency").value("THB"))
+                .andExpect(jsonPath("$[0].amountThb").value(10.50))
                 .andExpect(jsonPath("$[1].id").value(201))
                 .andExpect(jsonPath("$[1].name").value("Burger"))
-                .andExpect(jsonPath("$[1].amount").value(45.00));
+                .andExpect(jsonPath("$[1].amount").value(45.00))
+                .andExpect(jsonPath("$[1].currency").value("USD"))
+                .andExpect(jsonPath("$[1].amountThb").value(1620.00));
     }
 
     @Test
-    @DisplayName("GET /api/expenses/{expenseId}/items/{itemId} -> get one")
+    @DisplayName("GET /api/expenses/{expenseId}/items -> 404 when expense not found")
+    void list_items_expense_not_found() throws Exception {
+        when(expenses.findById(404L)).thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(get("/api/expenses/404/items"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{expenseId}/items/{itemId} -> get one with amountThb")
     void get_one() throws Exception {
-        when(items.getInExpense(100L, 200L)).thenReturn(item1);
+        when(items.getInExpense(100L, 200L)).thenReturn(itemThb);
 
         mockMvc.perform(get("/api/expenses/100/items/200"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(200))
                 .andExpect(jsonPath("$.expenseId").value(100))
                 .andExpect(jsonPath("$.name").value("Cola"))
-                .andExpect(jsonPath("$.amount").value(10.50));
+                .andExpect(jsonPath("$.amount").value(10.50))
+                .andExpect(jsonPath("$.currency").value("THB"))
+                .andExpect(jsonPath("$.amountThb").value(10.50));
     }
 
     @Test
@@ -143,46 +166,117 @@ class ExpenseItemControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/expenses/{expenseId}/items -> create (form params)")
-    void create_item() throws Exception {
-        when(items.create(100L, "Water", new BigDecimal("12.34")))
-                .thenReturn(item1);
+    @DisplayName("GET one -> 404 when expense not found")
+    void get_one_expense_not_found() throws Exception {
+        when(expenses.findById(404L)).thenReturn(java.util.Optional.empty());
 
-        mockMvc.perform(
-                        post("/api/expenses/100/items")
-                                .param("name", "Water")
-                                .param("amount", "12.34")
-                )
-                .andExpect(status().isCreated())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.id").value(200))
-                .andExpect(jsonPath("$.expenseId").value(100))
-                .andExpect(jsonPath("$.name").value("Cola"))
-                .andExpect(jsonPath("$.amount").value(10.50));
+        mockMvc.perform(get("/api/expenses/404/items/200"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("PUT /api/expenses/{expenseId}/items/{itemId} -> update (form params)")
+    @DisplayName("POST /api/expenses/{expenseId}/items -> create default THB and amountThb returned")
+    void create_item_default_thb() throws Exception {
+        ExpenseItem created = new ExpenseItem();
+        created.setId(300L);
+        created.setName("Water");
+        created.setAmount(new BigDecimal("12.34"));
+        created.setCurrency("THB");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(created, parent);
+
+        when(items.create(100L, "Water", new BigDecimal("12.34"), "THB")).thenReturn(created);
+
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "Water")
+                        .param("amount", "12.34"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(300))
+                .andExpect(jsonPath("$.expenseId").value(100))
+                .andExpect(jsonPath("$.name").value("Water"))
+                .andExpect(jsonPath("$.currency").value("THB"))
+                .andExpect(jsonPath("$.amount").value(12.34))
+                .andExpect(jsonPath("$.amountThb").value(12.34));
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses/{expenseId}/items -> create with USD and amountThb conversion")
+    void create_item_usd() throws Exception {
+        ExpenseItem created = new ExpenseItem();
+        created.setId(301L);
+        created.setName("Fries");
+        created.setAmount(new BigDecimal("2.50"));
+        created.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(created, parent);
+
+        when(items.create(100L, "Fries", new BigDecimal("2.50"), "USD")).thenReturn(created);
+
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "Fries")
+                        .param("amount", "2.50")
+                        .param("currency", "USD"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(301))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.amount").value(2.50))
+                .andExpect(jsonPath("$.amountThb").value(90.00));
+    }
+
+    @Test
+    @DisplayName("POST create -> 404 when expense not found")
+    void create_item_expense_not_found() throws Exception {
+        when(expenses.findById(999L)).thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(post("/api/expenses/999/items")
+                        .param("name", "X")
+                        .param("amount", "1.00"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("PUT /api/expenses/{expenseId}/items/{itemId} -> update with USD and converted amountThb")
     void update_item() throws Exception {
-        var updated = new ExpenseItem();
+        ExpenseItem updated = new ExpenseItem();
         updated.setId(200L);
         updated.setName("Cola (L)");
         updated.setAmount(new BigDecimal("15.00"));
-        try { updated.getClass().getMethod("setExpense", Expense.class).invoke(updated, parent); } catch (Exception ignored) {}
+        updated.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(updated, parent);
 
-        when(items.updateInExpense(100L, 200L, "Cola (L)", new BigDecimal("15.00")))
-                .thenReturn(updated);
+        when(items.updateInExpense(100L, 200L, "Cola (L)", new BigDecimal("15.00"), "USD")).thenReturn(updated);
 
-        mockMvc.perform(
-                        put("/api/expenses/100/items/200")
-                                .param("name", "Cola (L)")
-                                .param("amount", "15.00")
-                )
+        mockMvc.perform(put("/api/expenses/100/items/200")
+                        .param("name", "Cola (L)")
+                        .param("amount", "15.00")
+                        .param("currency", "USD"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(200))
                 .andExpect(jsonPath("$.expenseId").value(100))
                 .andExpect(jsonPath("$.name").value("Cola (L)"))
-                .andExpect(jsonPath("$.amount").value(15.00));
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.amount").value(15.00))
+                .andExpect(jsonPath("$.amountThb").value(540.00));
+    }
+
+    @Test
+    @DisplayName("PUT update -> 404 when expense not found")
+    void update_item_expense_not_found() throws Exception {
+        when(expenses.findById(404L)).thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(put("/api/expenses/404/items/200")
+                        .param("name", "X")
+                        .param("amount", "1.00"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("PUT update -> 404 when item not in expense")
+    void update_item_not_found_in_expense() throws Exception {
+        when(items.updateInExpense(100L, 999L, "X", new BigDecimal("1.00"), null)).thenReturn(null);
+
+        mockMvc.perform(put("/api/expenses/100/items/999")
+                        .param("name", "X")
+                        .param("amount", "1.00"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -195,19 +289,66 @@ class ExpenseItemControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/expenses/{expenseId}/items/total -> sumItems")
+    @DisplayName("DELETE -> 403 when cannot manage item")
+    void delete_item_forbidden() throws Exception {
+        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(false);
+
+        mockMvc.perform(delete("/api/expenses/100/items/200"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{expenseId}/items/total -> sum THB across items")
     void total_items_amount() throws Exception {
-        when(items.sumItems(100L)).thenReturn(new BigDecimal("55.50"));
+        ExpenseItem thb = new ExpenseItem();
+        thb.setId(401L);
+        thb.setName("Rice");
+        thb.setAmount(new BigDecimal("50.00"));
+        thb.setCurrency("THB");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(thb, parent);
+
+        ExpenseItem usd1 = new ExpenseItem();
+        usd1.setId(402L);
+        usd1.setName("Soda");
+        usd1.setAmount(new BigDecimal("2.50"));
+        usd1.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(usd1, parent);
+
+        ExpenseItem usd2 = new ExpenseItem();
+        usd2.setId(403L);
+        usd2.setName("Tips");
+        usd2.setAmount(new BigDecimal("1.00"));
+        usd2.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(usd2, parent);
+
+        when(items.listByExpense(100L)).thenReturn(List.of(thb, usd1, usd2));
 
         mockMvc.perform(get("/api/expenses/100/items/total"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("55.50"));
+                .andExpect(content().string("176.00"));
     }
 
-    // ---------- Permission (403) เพิ่มเติม ----------
+    @Test
+    @DisplayName("GET /api/expenses/{expenseId}/items/total -> 0.00 when no items")
+    void total_items_amount_zero() throws Exception {
+        when(items.listByExpense(100L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/expenses/100/items/total"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("0.00"));
+    }
 
     @Test
-    @DisplayName("GET items -> 403 เมื่อไม่มีสิทธิ์ดู expense")
+    @DisplayName("GET total -> 404 when expense not found")
+    void total_items_expense_not_found() throws Exception {
+        when(expenses.findById(999L)).thenReturn(java.util.Optional.empty());
+
+        mockMvc.perform(get("/api/expenses/999/items/total"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET items -> 403 when cannot view expense")
     void list_items_forbidden_whenCannotViewExpense() throws Exception {
         when(perm.canViewExpense(100L)).thenReturn(false);
 
@@ -216,7 +357,7 @@ class ExpenseItemControllerTest {
     }
 
     @Test
-    @DisplayName("GET one item -> 403 เมื่อไม่มีสิทธิ์ดู item")
+    @DisplayName("GET one item -> 403 when cannot view item")
     void get_one_forbidden_whenCannotViewItem() throws Exception {
         when(perm.canViewExpenseItem(100L, 200L)).thenReturn(false);
 
@@ -225,40 +366,29 @@ class ExpenseItemControllerTest {
     }
 
     @Test
-    @DisplayName("POST create item -> 403 เมื่อไม่มีสิทธิ์จัดการ expense")
+    @DisplayName("POST create -> 403 when cannot manage expense")
     void create_item_forbidden_whenCannotManageExpense() throws Exception {
         when(perm.canManageExpense(100L)).thenReturn(false);
 
-        mockMvc.perform(
-                post("/api/expenses/100/items")
+        mockMvc.perform(post("/api/expenses/100/items")
                         .param("name", "Water")
-                        .param("amount", "12.34")
-        ).andExpect(status().isForbidden());
-    }
-
-    @Test
-    @DisplayName("PUT update item -> 403 เมื่อไม่มีสิทธิ์จัดการ item")
-    void update_item_forbidden_whenCannotManageItem() throws Exception {
-        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(false);
-
-        mockMvc.perform(
-                put("/api/expenses/100/items/200")
-                        .param("name", "Cola (L)")
-                        .param("amount", "15.00")
-        ).andExpect(status().isForbidden());
-    }
-
-    @Test
-    @DisplayName("DELETE item -> 403 เมื่อไม่มีสิทธิ์จัดการ item")
-    void delete_item_forbidden_whenCannotManageItem() throws Exception {
-        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(false);
-
-        mockMvc.perform(delete("/api/expenses/100/items/200"))
+                        .param("amount", "12.34"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("GET total -> 403 เมื่อไม่มีสิทธิ์ดู expense")
+    @DisplayName("PUT update -> 403 when cannot manage item")
+    void update_item_forbidden_whenCannotManageItem() throws Exception {
+        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(false);
+
+        mockMvc.perform(put("/api/expenses/100/items/200")
+                        .param("name", "Cola (L)")
+                        .param("amount", "15.00"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET total -> 403 when cannot view expense")
     void total_items_amount_forbidden_whenCannotViewExpense() throws Exception {
         when(perm.canViewExpense(100L)).thenReturn(false);
 
@@ -266,75 +396,107 @@ class ExpenseItemControllerTest {
                 .andExpect(status().isForbidden());
     }
 
-    // ---------- Param/Validation (400) เพิ่มเติม ----------
-    // หมายเหตุ: ถ้าคอนโทรลเลอร์ใช้ @RequestParam แบบ required=true จะ 400 อัตโนมัติเมื่อขาดพารามิเตอร์
-
     @Test
-    @DisplayName("POST create item -> 400 เมื่อไม่มีชื่อ name")
+    @DisplayName("POST create -> 400 when missing name")
     void create_item_badRequest_whenMissingName() throws Exception {
-        // ให้มีสิทธิ์จัดการ expense
-        when(perm.canManageExpense(100L)).thenReturn(true);
-
-        mockMvc.perform(
-                post("/api/expenses/100/items")
-                        .param("amount", "12.34") // ขาด name
-        ).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("amount", "12.34"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("POST create item -> 400 เมื่อไม่มี amount")
+    @DisplayName("POST create -> 400 when missing amount")
     void create_item_badRequest_whenMissingAmount() throws Exception {
-        when(perm.canManageExpense(100L)).thenReturn(true);
-
-        mockMvc.perform(
-                post("/api/expenses/100/items")
-                        .param("name", "Water") // ขาด amount
-        ).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "Water"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("POST create item -> 400 เมื่อ amount ไม่เป็นตัวเลข")
+    @DisplayName("POST create -> 400 when amount not a number")
     void create_item_badRequest_whenAmountNotNumber() throws Exception {
-        when(perm.canManageExpense(100L)).thenReturn(true);
-
-        mockMvc.perform(
-                post("/api/expenses/100/items")
+        mockMvc.perform(post("/api/expenses/100/items")
                         .param("name", "Water")
-                        .param("amount", "abc") // parse ไม่ได้
-        ).andExpect(status().isBadRequest());
+                        .param("amount", "abc"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("PUT update item -> 400 เมื่อไม่มี name")
+    @DisplayName("PUT update -> 400 when missing name")
     void update_item_badRequest_whenMissingName() throws Exception {
-        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(true);
-
-        mockMvc.perform(
-                put("/api/expenses/100/items/200")
-                        .param("amount", "15.00") // ขาด name
-        ).andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/expenses/100/items/200")
+                        .param("amount", "15.00"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("PUT update item -> 400 เมื่อไม่มี amount")
+    @DisplayName("PUT update -> 400 when missing amount")
     void update_item_badRequest_whenMissingAmount() throws Exception {
-        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(true);
-
-        mockMvc.perform(
-                put("/api/expenses/100/items/200")
-                        .param("name", "Cola (L)") // ขาด amount
-        ).andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/expenses/100/items/200")
+                        .param("name", "Cola (L)"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("PUT update item -> 400 เมื่อ amount ไม่เป็นตัวเลข")
+    @DisplayName("PUT update -> 400 when amount not a number")
     void update_item_badRequest_whenAmountNotNumber() throws Exception {
-        when(perm.canManageExpenseItem(100L, 200L)).thenReturn(true);
-
-        mockMvc.perform(
-                put("/api/expenses/100/items/200")
+        mockMvc.perform(put("/api/expenses/100/items/200")
                         .param("name", "Cola (L)")
-                        .param("amount", "x") // parse ไม่ได้
-        ).andExpect(status().isBadRequest());
+                        .param("amount", "x"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("ISP amounts: 0, 0.01, large, and currency default/override")
+    void isp_amount_boundaries_and_currency() throws Exception {
+        ExpenseItem zero = new ExpenseItem();
+        zero.setId(501L);
+        zero.setName("Z");
+        zero.setAmount(new BigDecimal("0.00"));
+        zero.setCurrency("THB");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(zero, parent);
+        when(items.create(100L, "Z", new BigDecimal("0.00"), "THB")).thenReturn(zero);
+
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "Z")
+                        .param("amount", "0"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value(0.0))
+                .andExpect(jsonPath("$.amountThb").value(0.0))
+                .andExpect(jsonPath("$.currency").value("THB"));
+
+        ExpenseItem cent = new ExpenseItem();
+        cent.setId(502L);
+        cent.setName("C");
+        cent.setAmount(new BigDecimal("0.01"));
+        cent.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(cent, parent);
+        when(items.create(100L, "C", new BigDecimal("0.01"), "USD")).thenReturn(cent);
+
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "C")
+                        .param("amount", "0.01")
+                        .param("currency", "USD"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value(0.01))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.amountThb").value(0.36));
+
+        ExpenseItem big = new ExpenseItem();
+        big.setId(503L);
+        big.setName("B");
+        big.setAmount(new BigDecimal("9999999999.99"));
+        big.setCurrency("USD");
+        ExpenseItem.class.getMethod("setExpense", Expense.class).invoke(big, parent);
+        when(items.create(100L, "B", new BigDecimal("9999999999.99"), "USD")).thenReturn(big);
+
+        mockMvc.perform(post("/api/expenses/100/items")
+                        .param("name", "B")
+                        .param("amount", "9999999999.99")
+                        .param("currency", "USD"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value(9999999999.99))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.amountThb").value(359999999999.64));
     }
 }

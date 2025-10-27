@@ -8,9 +8,7 @@ import java.util.Objects;
 
 @Entity
 @Table(name = "expense_items",
-        indexes = {
-                @Index(name = "idx_expense_items_expense", columnList = "expense_id")
-        })
+        indexes = { @Index(name = "idx_expense_items_expense", columnList = "expense_id") })
 public class ExpenseItem {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,11 +26,12 @@ public class ExpenseItem {
     @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal amount;
 
-    // shares ของรายการนี้
+    @Column(length = 3, nullable = false)
+    private String currency = "THB";
+
     @OneToMany(mappedBy = "expenseItem", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExpenseItemShare> shares = new ArrayList<>();
 
-    // getters/setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -44,6 +43,9 @@ public class ExpenseItem {
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public List<ExpenseItemShare> getShares() { return shares; }
     public void setShares(List<ExpenseItemShare> shares) { this.shares = shares; }

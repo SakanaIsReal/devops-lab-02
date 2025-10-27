@@ -18,11 +18,12 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+import static java.math.RoundingMode.HALF_UP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@DisplayName("ExpenseItemController IT (end-to-end to DB)")
+@DisplayName("ExpenseItemController IT (end-to-end to DB, FX-locked)")
 class ExpenseItemControllerIT extends BaseIntegrationTest {
 
     private static final String BASE = "/api/expenses/{expenseId}/items";
@@ -31,28 +32,23 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     @Autowired ObjectMapper om;
     @Autowired JwtService jwtService;
 
-
     @Autowired GroupRepository groupRepo;
     @Autowired ExpenseRepository expenseRepo;
     @Autowired ExpenseItemRepository itemRepo;
     @Autowired GroupMemberRepository memberRepo;
     @Autowired UserRepository userRepo;
 
-
     long adminId;
     long meId;
     long otherId;
 
-
     long groupId;
     long expenseId;
-    long itemId1;
-    long itemId2;
-
+    long itemIdThb;
+    long itemIdUsd;
 
     long emptyExpenseId;
 
-    // ---------- JWT helpers ----------
     private String jwtFor(long uid, int roleCode) {
         Map<String, Object> claims = new HashMap<>();
         claims.put(JwtService.CLAIM_UID, uid);
@@ -68,14 +64,12 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
-
         itemRepo.deleteAll();
         expenseRepo.deleteAll();
         memberRepo.deleteAll();
         groupRepo.deleteAll();
         userRepo.deleteAll();
 
-        // ----- users -----
         User admin = new User();
         admin.setEmail("admin@example.com");
         admin.setUserName("Admin");
@@ -97,19 +91,16 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
         other.setRole(Role.USER);
         otherId = userRepo.save(other).getId();
 
-        // ----- group -----
         Group g = new Group();
         g.setName("IT-Group");
         g.setOwner(userRepo.getReferenceById(meId));
         groupId = groupRepo.save(g).getId();
 
-        // me เป็นสมาชิกกลุ่ม
         GroupMember gm = new GroupMember();
         gm.setGroup(g);
         gm.setUser(me);
         memberRepo.save(gm);
 
-        // ----- expense หลัก (me เป็น payer) -----
         Expense exp = new Expense();
         exp.setGroup(g);
         exp.setTitle("IT-Expense");
@@ -118,22 +109,23 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
         exp.setCreatedAt(LocalDateTime.now());
         exp.setAmount(new BigDecimal("0.00"));
         exp.setPayer(me);
+        exp.setExchangeRatesJson("{\"THB\":1,\"USD\":36.25,\"JPY\":0.245,\"EUR\":39.90}");
         expenseId = expenseRepo.save(exp).getId();
 
-        // ----- items ใต้ expense หลัก -----
-        ExpenseItem it1 = new ExpenseItem();
-        it1.setExpense(exp);
-        it1.setName("Coffee");
-        it1.setAmount(new BigDecimal("45.50"));
-        itemId1 = itemRepo.save(it1).getId();
+        ExpenseItem itThb = new ExpenseItem();
+        itThb.setExpense(exp);
+        itThb.setName("Coffee");
+        itThb.setAmount(new BigDecimal("45.50"));
+        itThb.setCurrency("THB");
+        itemIdThb = itemRepo.save(itThb).getId();
 
-        ExpenseItem it2 = new ExpenseItem();
-        it2.setExpense(exp);
-        it2.setName("Snack");
-        it2.setAmount(new BigDecimal("20.00"));
-        itemId2 = itemRepo.save(it2).getId();
+        ExpenseItem itUsd = new ExpenseItem();
+        itUsd.setExpense(exp);
+        itUsd.setName("Snack");
+        itUsd.setAmount(new BigDecimal("3.00"));
+        itUsd.setCurrency("USD");
+        itemIdUsd = itemRepo.save(itUsd).getId();
 
-        // ----- expense ว่าง (ไว้เทสต์ total=0) -----
         Expense expEmpty = new Expense();
         expEmpty.setGroup(g);
         expEmpty.setTitle("Empty");
@@ -142,10 +134,9 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
         expEmpty.setCreatedAt(LocalDateTime.now());
         expEmpty.setAmount(new BigDecimal("0.00"));
         expEmpty.setPayer(me);
+        expEmpty.setExchangeRatesJson("{\"THB\":1,\"USD\":36.25}");
         emptyExpenseId = expenseRepo.save(expEmpty).getId();
     }
-
-    // -------------------- LIST --------------------
 
     @Test
     @DisplayName("GET /items → 401 เมื่อไม่ส่ง token")
@@ -162,53 +153,68 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /items → 200 และมีรายการ เมื่อเป็นสมาชิกกลุ่ม")
-    void list_ok_for_member() throws Exception {
+    @DisplayName("GET /items → 200 สำหรับสมาชิก และ amountThb คำนวณตามเรตที่ล็อก")
+    void list_ok_for_member_with_amountThb() throws Exception {
+        BigDecimal coffeeThb = new BigDecimal("45.50");
+        BigDecimal snackThb = new BigDecimal("3.00").multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
+
         mvc.perform(get(BASE, expenseId).with(asUser(meId)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$[0].name").exists());
+                .andExpect(jsonPath("$[?(@.name=='Coffee')].amount").value(45.50))
+                .andExpect(jsonPath("$[?(@.name=='Coffee')].currency").value("THB"))
+                .andExpect(jsonPath("$[?(@.name=='Coffee')].amountThb").value(coffeeThb.doubleValue()))
+                .andExpect(jsonPath("$[?(@.name=='Snack')].amount").value(3.00))
+                .andExpect(jsonPath("$[?(@.name=='Snack')].currency").value("USD"))
+                .andExpect(jsonPath("$[?(@.name=='Snack')].amountThb").value(snackThb.doubleValue()));
     }
-
-    // -------------------- GET by id --------------------
 
     @Test
     @DisplayName("GET /items/{id} → 403 เมื่อผู้เรียกไม่ใช่สมาชิกกลุ่ม")
     void get_forbidden_for_non_member() throws Exception {
-        mvc.perform(get(BASE + "/{itemId}", expenseId, itemId1).with(asUser(otherId)))
+        mvc.perform(get(BASE + "/{itemId}", expenseId, itemIdThb).with(asUser(otherId)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("GET /items/{id} → 404 เมื่อ itemId ไม่อยู่ใต้ expense เดียวกัน (แต่ผู้เรียกเป็นสมาชิก)")
+    @DisplayName("GET /items/{id} → 403 เมื่อ itemId ไม่อยู่ใต้ expense เดียวกัน (wrong scope)")
     void get_notfound_wrong_scope() throws Exception {
-        // สร้าง expense อีกอัน + item ใต้ expense นั้น
-        Expense exp2 = buildExpense(groupId, meId, "Another", new BigDecimal("0.00"));
+        Expense exp2 = new Expense();
+        exp2.setGroup(groupRepo.findById(groupId).orElseThrow());
+        exp2.setTitle("Another");
+        exp2.setStatus(ExpenseStatus.OPEN);
+        exp2.setType(ExpenseType.CUSTOM);
+        exp2.setCreatedAt(LocalDateTime.now());
+        exp2.setAmount(new BigDecimal("0.00"));
+        exp2.setPayer(userRepo.findById(meId).orElseThrow());
+        exp2.setExchangeRatesJson("{\"THB\":1,\"USD\":36.25}");
+        long exp2Id = expenseRepo.save(exp2).getId();
+
         ExpenseItem itAlien = new ExpenseItem();
-        itAlien.setExpense(expenseRepo.findById(exp2.getId()).orElseThrow());
+        itAlien.setExpense(expenseRepo.findById(exp2Id).orElseThrow());
         itAlien.setName("Alien");
         itAlien.setAmount(new BigDecimal("9.99"));
+        itAlien.setCurrency("THB");
         long alienItemId = itemRepo.save(itAlien).getId();
 
-        // เรียกด้วย expenseId หลัก + item จาก expense อื่น → ควร 404 (ผ่าน perm ก่อนเพราะ me เป็นสมาชิกกลุ่มเดียวกัน)
         mvc.perform(get(BASE + "/{itemId}", expenseId, alienItemId).with(asUser(meId)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("GET /items/{id} → 200 เมื่อพบ")
+    @DisplayName("GET /items/{id} → 200 เมื่อพบ และระบุ amountThb ถูกต้อง")
     void get_ok() throws Exception {
-        mvc.perform(get(BASE + "/{itemId}", expenseId, itemId1).with(asUser(meId)))
+        BigDecimal coffeeThb = new BigDecimal("45.50");
+        mvc.perform(get(BASE + "/{itemId}", expenseId, itemIdThb).with(asUser(meId)))
                 .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.name").value("Coffee"))
-                .andExpect(jsonPath("$.amount").value(45.50));
+                .andExpect(jsonPath("$.amount").value(45.50))
+                .andExpect(jsonPath("$.currency").value("THB"))
+                .andExpect(jsonPath("$.amountThb").value(coffeeThb.doubleValue()));
     }
 
-    // -------------------- CREATE --------------------
-
     @Test
-    @DisplayName("POST /items → 403 เมื่อผู้เรียกไม่ใช่สมาชิก/ไม่มีสิทธิ์ manage")
+    @DisplayName("POST /items → 403 เมื่อผู้เรียกไม่มีสิทธิ์ manage")
     void create_forbidden_for_non_member() throws Exception {
         mvc.perform(post(BASE, expenseId)
                         .with(asUser(otherId))
@@ -218,42 +224,58 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /items → 201 เมื่อ ADMIN สร้างสำเร็จ และบันทึกลง DB")
-    void create_created_as_admin() throws Exception {
+    @DisplayName("POST /items → 201 ADMIN: default currency=THB และ amountThb = amount")
+    void create_created_as_admin_thb_default() throws Exception {
         mvc.perform(post(BASE, expenseId)
                         .with(asAdmin(adminId))
                         .param("name", "Taxi")
                         .param("amount", "80.00"))
                 .andExpect(status().isCreated())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.name").value("Taxi"));
+                .andExpect(jsonPath("$.name").value("Taxi"))
+                .andExpect(jsonPath("$.currency").value("THB"))
+                .andExpect(jsonPath("$.amount").value(80.00))
+                .andExpect(jsonPath("$.amountThb").value(80.00));
 
         var list = itemRepo.findByExpense_Id(expenseId);
-        assertThat(list.stream().anyMatch(i -> "Taxi".equals(i.getName()))).isTrue();
+        assertThat(list.stream().anyMatch(i -> "Taxi".equals(i.getName()) && "THB".equals(i.getCurrency()))).isTrue();
+    }
+
+    @Test
+    @DisplayName("POST /items → 201 ADMIN: currency=USD (case-insensitive) คำนวณ amountThb ตามเรต")
+    void create_created_as_admin_usd_uppercase() throws Exception {
+        BigDecimal usd = new BigDecimal("2.50");
+        BigDecimal thb = usd.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
+
+        mvc.perform(post(BASE, expenseId)
+                        .with(asAdmin(adminId))
+                        .param("name", "Burger")
+                        .param("amount", usd.toPlainString())
+                        .param("currency", "usd"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Burger"))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.amount").value(usd.doubleValue()))
+                .andExpect(jsonPath("$.amountThb").value(thb.doubleValue()));
     }
 
     @Test
     @DisplayName("POST /items → 400 เมื่อขาด name/amount")
     void create_bad_request_missing_fields() throws Exception {
-        // ขาด name
         mvc.perform(post(BASE, expenseId)
                         .with(asAdmin(adminId))
                         .param("amount", "10.00"))
                 .andExpect(status().isBadRequest());
 
-        // ขาด amount
         mvc.perform(post(BASE, expenseId)
                         .with(asAdmin(adminId))
                         .param("name", "Snack"))
                 .andExpect(status().isBadRequest());
     }
 
-    // -------------------- UPDATE --------------------
-
     @Test
     @DisplayName("PUT /items/{id} → 403 เมื่อผู้เรียกไม่มีสิทธิ์")
     void update_forbidden_for_non_member() throws Exception {
-        mvc.perform(put(BASE + "/{itemId}", expenseId, itemId1)
+        mvc.perform(put(BASE + "/{itemId}", expenseId, itemIdThb)
                         .with(asUser(otherId))
                         .param("name", "Edited")
                         .param("amount", "33.33"))
@@ -261,54 +283,71 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("PUT /items/{id} → 200 เมื่อ ADMIN อัปเดตสำเร็จ และบันทึกลง DB")
-    void update_ok_as_admin() throws Exception {
-        mvc.perform(put(BASE + "/{itemId}", expenseId, itemId1)
-                        .with(asAdmin(adminId))
-                        .param("name", "Edited")
-                        .param("amount", "10.00"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("Edited"))
-                .andExpect(jsonPath("$.amount").value(10.00));
+    @DisplayName("PUT /items/{id} → 200 ADMIN: แก้ชื่อ/จำนวน/สกุลเงิน และ amountThb เปลี่ยนตาม")
+    void update_ok_as_admin_change_fields() throws Exception {
+        ExpenseItem tmp = new ExpenseItem();
+        tmp.setExpense(expenseRepo.findById(expenseId).orElseThrow());
+        tmp.setName("Temp");
+        tmp.setAmount(new BigDecimal("1.00"));
+        tmp.setCurrency("THB");
+        long tmpId = itemRepo.save(tmp).getId();
 
-        var updated = itemRepo.findById(itemId1).orElseThrow();
-        assertThat(updated.getName()).isEqualTo("Edited");
-        assertThat(updated.getAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
+        BigDecimal newAmount = new BigDecimal("4.20");
+        BigDecimal expectedThb = newAmount.multiply(new BigDecimal("39.90")).setScale(2, HALF_UP);
+
+        mvc.perform(put(BASE + "/{itemId}", expenseId, tmpId)
+                        .with(asAdmin(adminId))
+                        .param("name", "Edited+EUR")
+                        .param("amount", newAmount.toPlainString())
+                        .param("currency", "EUR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Edited+EUR"))
+                .andExpect(jsonPath("$.amount").value(newAmount.doubleValue()))
+                .andExpect(jsonPath("$.currency").value("EUR"))
+                .andExpect(jsonPath("$.amountThb").value(expectedThb.doubleValue()));
+
+        var updated = itemRepo.findById(tmpId).orElseThrow();
+        assertThat(updated.getName()).isEqualTo("Edited+EUR");
+        assertThat(updated.getAmount()).isEqualByComparingTo(newAmount);
+        assertThat(updated.getCurrency()).isEqualTo("EUR");
     }
 
     @Test
-    @DisplayName("PUT /items/{id} → 400 เมื่อขาด name/amount")
+    @DisplayName("PUT /items/{id} → 400 เมื่อขาด name/amount (controller บังคับ full update)")
     void update_bad_request_missing_fields() throws Exception {
-        mvc.perform(put(BASE + "/{itemId}", expenseId, itemId1)
+        mvc.perform(put(BASE + "/{itemId}", expenseId, itemIdThb)
                         .with(asAdmin(adminId))
                         .param("amount", "10.00"))
                 .andExpect(status().isBadRequest());
 
-        mvc.perform(put(BASE + "/{itemId}", expenseId, itemId1)
+        mvc.perform(put(BASE + "/{itemId}", expenseId, itemIdThb)
                         .with(asAdmin(adminId))
                         .param("name", "Edited"))
                 .andExpect(status().isBadRequest());
     }
 
-    // -------------------- DELETE --------------------
-
     @Test
     @DisplayName("DELETE /items/{id} → 403 เมื่อผู้เรียกไม่มีสิทธิ์")
     void delete_forbidden_for_non_member() throws Exception {
-        mvc.perform(delete(BASE + "/{itemId}", expenseId, itemId1).with(asUser(otherId)))
+        mvc.perform(delete(BASE + "/{itemId}", expenseId, itemIdUsd).with(asUser(otherId)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("DELETE /items/{id} → 204 เมื่อ ADMIN ลบสำเร็จ และลบออกจาก DB จริง")
+    @DisplayName("DELETE /items/{id} → 204 ADMIN: ลบสำเร็จและหายจาก DB")
     void delete_ok_as_admin() throws Exception {
-        mvc.perform(delete(BASE + "/{itemId}", expenseId, itemId2).with(asAdmin(adminId)))
+        ExpenseItem toDelete = new ExpenseItem();
+        toDelete.setExpense(expenseRepo.findById(expenseId).orElseThrow());
+        toDelete.setName("Del");
+        toDelete.setAmount(new BigDecimal("7.77"));
+        toDelete.setCurrency("THB");
+        long delId = itemRepo.save(toDelete).getId();
+
+        mvc.perform(delete(BASE + "/{itemId}", expenseId, delId).with(asAdmin(adminId)))
                 .andExpect(status().isNoContent());
 
-        assertThat(itemRepo.findById(itemId2)).isEmpty();
+        assertThat(itemRepo.findById(delId)).isEmpty();
     }
-
-    // -------------------- TOTAL --------------------
 
     @Test
     @DisplayName("GET /items/total → 403 เมื่อผู้เรียกไม่ใช่สมาชิกกลุ่ม")
@@ -318,7 +357,7 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /items/total → 200 และคืน 0 เมื่อ expense ว่าง")
+    @DisplayName("GET /items/total → 200 และคืน 0.00 เมื่อ expense ว่าง")
     void total_ok_zero_when_empty() throws Exception {
         mvc.perform(get("/api/expenses/{expenseId}/items/total", emptyExpenseId).with(asUser(meId)))
                 .andExpect(status().isOk())
@@ -326,34 +365,26 @@ class ExpenseItemControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /items/total → 200 เมื่อมีผลรวมจริง (Coffee 45.50 + Edited/10.00 + Snack/20.00 ถ้ายังไม่ลบ)")
-    void total_ok_with_value() throws Exception {
-        // ค่ารวมตอนนี้ขึ้นกับเคสก่อนหน้า:
-        //   - Coffee 45.50 (itemId1) ถูกแก้เป็น 10.00 ใน update_ok_as_admin (ถ้ารันก่อน)
-        //   - Snack 20.00 (itemId2) อาจถูกลบใน delete_ok_as_admin (ถ้ารันก่อน)
-        // เพื่อให้ deterministic ให้คำนวณตามสถานะปัจจุบันใน DB แล้ว assert แบบยืดหยุ่น
+    @DisplayName("GET /items/total → 200 รวม THB จากหลายสกุลตามเรตล็อก (THB + USD)")
+    void total_ok_with_value_fx_locked() throws Exception {
         var items = itemRepo.findByExpense_Id(expenseId);
-        BigDecimal sum = items.stream().map(ExpenseItem::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2);
+
+        BigDecimal thb = items.stream()
+                .filter(i -> "THB".equals(i.getCurrency()) || i.getCurrency() == null)
+                .map(ExpenseItem::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal usd = items.stream()
+                .filter(i -> "USD".equals(i.getCurrency()))
+                .map(ExpenseItem::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalThb = thb
+                .add(usd.multiply(new BigDecimal("36.25")))
+                .setScale(2, HALF_UP);
 
         mvc.perform(get(BASE + "/total", expenseId).with(asUser(meId)))
                 .andExpect(status().isOk())
-                .andExpect(content().string(sum.toPlainString()));
-    }
-
-    // ---------- helper ----------
-    private Expense buildExpense(long groupId, long payerUserId, String title, BigDecimal amount) {
-        Group gRef = groupRepo.findById(groupId).orElseThrow();
-        User payer = userRepo.findById(payerUserId).orElseThrow();
-
-        Expense e = new Expense();
-        e.setGroup(gRef);
-        e.setTitle(title);
-        e.setStatus(ExpenseStatus.OPEN);
-        e.setType(ExpenseType.CUSTOM);
-        e.setCreatedAt(LocalDateTime.now());
-        e.setAmount(amount);
-        e.setPayer(payer);
-        return expenseRepo.save(e);
+                .andExpect(content().string(totalThb.toPlainString()));
     }
 }

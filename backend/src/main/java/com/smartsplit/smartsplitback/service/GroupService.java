@@ -18,5 +18,9 @@ public class GroupService {
     public Group get(Long id){ return repo.findById(id).orElse(null); }
     public Group save(Group g){ return repo.save(g); }
     public void delete(Long id){ repo.deleteById(id); }
+
+    public List<Group> searchMyGroups(Long me, String q){
+        return repo.searchMyOwnedOrMemberGroupsByName(me, q);
+    }
 }
 

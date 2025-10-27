@@ -45,4 +45,5 @@ public class GroupMemberService {
     public long countMembers(Long groupId) {
         return repo.countByGroupId(groupId);
     }
+
 }
