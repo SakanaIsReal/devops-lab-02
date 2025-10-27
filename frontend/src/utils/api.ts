@@ -105,8 +105,9 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
             name: apiResponse.userName,
             phone: apiResponse.phone,
             imageUrl: avatarUrl,
-            qrCodeUrl: qrCodeUrl
-            // Add other properties as needed
+            qrCodeUrl: qrCodeUrl,
+            firstName: apiResponse.firstName,
+            lastName: apiResponse.lastName
         }
     };
 };
@@ -116,13 +117,17 @@ export const signUpApi = async (
     userName: string,
     email: string,
     password: string,
-    phone?: string
+    phone?: string,
+    firstName?: string,
+    lastName?: string
 ): Promise<User> => {
     const response = await api.post('/auth/register', {
         userName,
         email,
         password,
-        phone: phone || "" // Send empty string if phone is not provided
+        phone: phone || "",
+        firstName: firstName || "",
+        lastName: lastName || ""
     });
     return response.data;
 };
@@ -137,6 +142,10 @@ export const getUserInformation = async (userId: string | number,): Promise<any>
     if (userData.qrCodeUrl) {
         userData.qrCodeUrl = await resolveImageUrl(userData.qrCodeUrl);
     }
+
+    // Include firstName and lastName
+    userData.firstName = userData.firstName || "";
+    userData.lastName = userData.lastName || "";
 
     return userData;
 };
@@ -166,7 +175,20 @@ export const getGroups = async (): Promise<Group[]> => {
 
 export const searchUsers = async (query: string): Promise<any[]> => {
     const response = await api.get(`/users/search?q=${query}`);
-    return response.data;
+    const users = response.data;
+
+    // Resolve all user avatar URLs in parallel
+    await Promise.all(
+        users.map(async (user: any) => {
+            const avatarUrl = user.avatarUrl ?? user.imageUrl ?? '';
+            if (avatarUrl) {
+                user.avatarUrl = await resolveImageUrl(avatarUrl);
+                user.imageUrl = user.avatarUrl; // Also set imageUrl for consistency
+            }
+        })
+    );
+
+    return users;
 };
 
 
@@ -248,6 +270,16 @@ export const editUserInformationAcc = async (
         if (formData.email !== null) userPayload.email = formData.email;
         if (formData.phone !== null) userPayload.phone = formData.phone;
 
+        // Only include firstName if it has a non-empty value
+        if (formData.firstName && formData.firstName.trim() !== '') {
+            userPayload.firstName = formData.firstName.trim();
+        }
+
+        // Only include lastName if it has a non-empty value
+        if (formData.lastName && formData.lastName.trim() !== '') {
+            userPayload.lastName = formData.lastName.trim();
+        }
+
         data.append(
             "user",
             new Blob([JSON.stringify(userPayload)], { type: "application/json" }),
@@ -269,11 +301,28 @@ export const editUserInformationAcc = async (
         if (formData.email !== null) updatePayload.email = formData.email;
         if (formData.phone !== null) updatePayload.phone = formData.phone;
 
-        if (typeof formData.avatar === 'string' || formData.avatar === null) {
-            updatePayload.avatarUrl = formData.avatar;
+        // Only include firstName if it has a non-empty value
+        if (formData.firstName && formData.firstName.trim() !== '') {
+            updatePayload.firstName = formData.firstName.trim();
         }
-        if (typeof formData.qr === 'string' || formData.qr === null) {
-            updatePayload.qrCodeUrl = formData.qr;
+
+        // Only include lastName if it has a non-empty value
+        if (formData.lastName && formData.lastName.trim() !== '') {
+            updatePayload.lastName = formData.lastName.trim();
+        }
+
+        // Only send avatarUrl/qrCodeUrl if they're short reference URLs (not data URLs)
+        // Data URLs are too long for VARCHAR and cause truncation errors
+        if (typeof formData.avatar === 'string' && formData.avatar !== null) {
+            // Don't send data URLs - they're already stored as files
+            if (!formData.avatar.startsWith('data:')) {
+                updatePayload.avatarUrl = formData.avatar;
+            }
+        }
+        if (typeof formData.qr === 'string' && formData.qr !== null) {
+            if (!formData.qr.startsWith('data:')) {
+                updatePayload.qrCodeUrl = formData.qr;
+            }
         }
 
         // ส่ง JSON Request
@@ -486,7 +535,7 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
            : Array.isArray(d?.content) ? d.content
            : [];
 
-  return raw.map((u: any) => {
+  const members = raw.map((u: any) => {
     const nested = u.user ?? u.profile ?? u.account ?? {};
     return {
       ...u,
@@ -497,6 +546,17 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
       imageUrl: u.avatarUrl ?? u.imageUrl ?? nested?.avatarUrl ?? nested?.imageUrl ?? '',
     } as User;
   });
+
+  // Resolve all member image URLs in parallel
+  await Promise.all(
+    members.map(async (member: User) => {
+      if (member.imageUrl) {
+        member.imageUrl = await resolveImageUrl(member.imageUrl);
+      }
+    })
+  );
+
+  return members;
 };
 
 
@@ -606,15 +666,25 @@ export const fetchUserProfiles = async (ids: number[]) => {
 
   // สร้างแผนที่ id -> โปรไฟล์ normalize แล้ว
   const out = new Map<number, any>();
+
+  // Resolve all image URLs in parallel
+  const resolvePromises: Promise<void>[] = [];
   byId.forEach((p, id) => {
-    out.set(id, {
-      id,
-      name: deriveName(p),
-      email: p?.email ?? '',
-      phone: p?.phone ?? '',
-      imageUrl: p?.avatarUrl ?? p?.imageUrl ?? '',
-    });
+    const imageUrl = p?.avatarUrl ?? p?.imageUrl ?? '';
+    const promise = (async () => {
+      const resolvedImageUrl = await resolveImageUrl(imageUrl);
+      out.set(id, {
+        id,
+        name: deriveName(p),
+        email: p?.email ?? '',
+        phone: p?.phone ?? '',
+        imageUrl: resolvedImageUrl,
+      });
+    })();
+    resolvePromises.push(promise);
   });
+
+  await Promise.all(resolvePromises);
   return out;
 };
 // utils.ts
@@ -712,7 +782,16 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
 
     try {
         const payerInfo = await getUserInformation(payerId.toString());
-        payerName = payerInfo.name || payerInfo.userName || payerName;
+        // Construct full name from firstName and lastName if available
+        if (payerInfo.firstName && payerInfo.lastName) {
+            payerName = `${payerInfo.firstName} ${payerInfo.lastName}`;
+        } else if (payerInfo.firstName) {
+            payerName = payerInfo.firstName;
+        } else if (payerInfo.lastName) {
+            payerName = payerInfo.lastName;
+        } else {
+            payerName = payerInfo.name || payerInfo.userName || payerName;
+        }
         qrCodeUrl = payerInfo.qrCodeUrl || payerInfo.qrCode || '';
         phone = payerInfo.phone || '';
     } catch (error) {
