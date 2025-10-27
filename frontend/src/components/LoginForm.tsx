@@ -16,7 +16,6 @@ export const LoginForm: React.FC = () => {
     email: "",
     password: "",
   });
-  const [error, setError] = useState<string | null>(null);
 
   // 3. Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,45 +24,41 @@ export const LoginForm: React.FC = () => {
       ...prevState,
       [name]: value,
     }));
-    // Clear errors when the user starts typing again
-    if (error) setError(null);
   };
 
   // 4. Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return; // Prevent multiple submissions
-    
-    setError(null);
 
     // Basic client-side validation
     if (!formData.email.trim() || !formData.password.trim()) {
-      setError("Please fill in all fields");
+      alert("Please fill in all fields");
       return;
     }
 
     try {
       await login(formData.email, formData.password);
-      
+
       // Navigation after successful login
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 50);
-      
+
     } catch (err: any) {
       console.error("Login error details:", err);
-      
+
       // Enhanced error handling
       if (err?.response?.status === 401) {
-        setError("Invalid email or password");
+        alert("Invalid email or password");
       } else if (err?.message?.includes("401")) {
-        setError("Invalid email or password");
+        alert("Invalid email or password");
       } else if (err?.response?.status >= 500) {
-        setError("Server error. Please try again later.");
+        alert("Server error. Please try again later.");
       } else if (err.message) {
-        setError(err.message);
+        alert(err.message);
       } else {
-        setError("Login failed. Please try again.");
+        alert("Login failed. Please try again.");
       }
     }
   };
@@ -79,10 +74,7 @@ export const LoginForm: React.FC = () => {
       
       <h2 className="text-2xl font-bold text-left text-gray-800">Log In</h2>
 
-      {/* Conditionally show general error message */}
-      {error && (
-        <p className="text-red-500 text-sm bg-red-50 p-2 rounded">{error}</p>
-      )}
+      {/* Conditionally show general error message */} 
 
       {/* Use our reusable Input component */}
       <Input

@@ -1,11 +1,24 @@
 import axios from 'axios';
-import { Group, PaymentDetails, Settlement, Transaction, User } from '../types';
-import { UserUpdateForm } from '../types/index'
-const API_BASE_URL = 'http://localhost:8081';
+import { Balance, Group, PaymentDetails, Settlement, Transaction, User, UserUpdateForm, Payment } from '../types';
+
+
+const API_BASE_URL = '/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
 });
+
+export const getBalances = async (): Promise<Balance[]> => {
+    const response = await api.get('/me/balances');
+    return response.data;
+};
+
+// utils/api.ts
+export const getPaymentDetail = async (billId: string, userId: string) => {
+  const response = await api.get(`/payments/${billId}/${userId}`);
+  return response.data;
+};
+
 
 // FIX: Consistent token key
 export const getToken = () => {
@@ -22,7 +35,7 @@ api.interceptors.request.use(config => {
 
 // FIX: Correct response handling
 export const loginApi = async (email: string, password: string): Promise<{ user: User; token: string }> => {
-    const response = await api.post('/api/auth/login', { email, password });
+    const response = await api.post('/auth/login', { email, password });
 
     // Map API response to match your expected structure
     const apiResponse = response.data;
@@ -47,7 +60,7 @@ export const signUpApi = async (
     password: string,
     phone?: string
 ): Promise<User> => {
-    const response = await api.post('/api/auth/register', {
+    const response = await api.post('/auth/register', {
         userName,
         email,
         password,
@@ -56,54 +69,72 @@ export const signUpApi = async (
     return response.data;
 };
 export const getUserInformation = async (userId: string | number,): Promise<any> => {
-    const response = await api.get(`/api/users/${userId}`);
+    const response = await api.get(`/users/${userId}`);
     return response.data;
 };
 
 
 export const getTransactions = async (): Promise<any[]> => {
-    const response = await api.get('/api/transactions');
+    const response = await api.get('/transactions');
     return response.data;
 };
 
-export const getGroups = async (): Promise<any[]> => {
-    const response = await api.get('/api/groups');
+export const getGroups = async (): Promise<Group[]> => {
+    const response = await api.get('/groups/mine');
     return response.data;
 };
 
 
 export const searchUsers = async (query: string): Promise<any[]> => {
-    const response = await api.get(`/api/users/search?q=${query}`);
+    const response = await api.get(`/users/search?q=${query}`);
     return response.data;
 };
 
 
 
 export const getBillDetails = async (billId: string): Promise<any> => {
-    const response = await api.get(`/api/bills/${billId}`);
+    const response = await api.get(`/expenses/${billId}`);
     return response.data;
 };
 
+export const getExpenseSettlements = async (expenseId: string): Promise<any[]> => {
+    const response = await api.get(`/expenses/${expenseId}/settlement`);
+    return response.data;
+};
+export const getExpenseSettlementsUserID = async (expenseId: string, userId : String): Promise<any[]> => {
+    const response = await api.get(`/expenses/${expenseId}/settlement/${userId}`);
+    if (Array.isArray(response.data)) {
+        return response.data;
+    }
+    return [response.data];
+};
 // Update your ../utils/api file
 
 export const getGroupDetails = async (groupId: string): Promise<Group> => {
-    const response = await api.get(`/api/groups/${groupId}`);
+    const response = await api.get(`/groups/${groupId}`);
     return response.data;
 };
 
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
-    const response = await api.get(`/api/expenses/group/${groupId}`);
+  const response = await api.get(`/expenses/group/${groupId}`);
+  const expenses = response.data;
 
-    // Transform the API response to match your frontend needs
-    const expenses = response.data;
-    return expenses.map((expense: any) => ({
+  const transactions = await Promise.all(
+    expenses.map(async (expense: any) => {
+      const user_response = await api.get(`/users/${expense.payerUserId}`);
+      const username = user_response.data.userName;
+
+      return {
         ...expense,
-        // Map API fields to frontend expected fields
         name: expense.title,
-        payer: `User ${expense.payerUserId}`, // You might need to fetch actual user names
+        payer: `${username}`,
         date: new Date(expense.createdAt).toLocaleDateString(),
-        status: expense.status.toLowerCase() as 'pending' | 'completed' // Map status
-    }));
+        status: expense.status.toLowerCase() as 'pending' | 'completed',
+      };
+    })
+  );
+
+  return transactions;
 };
 
 
@@ -116,7 +147,7 @@ export const createExpense = async (expenseData: {
     title: string;
     // Add other necessary fields
 }): Promise<any> => {
-    const response = await api.post('/api/expenses', expenseData);
+    const response = await api.post('/expenses', expenseData);
     return response.data;
 };
 export const editUserInformationAcc = async (
@@ -142,7 +173,7 @@ export const editUserInformationAcc = async (
         if (formData.qr instanceof File) {
             data.append("qr", formData.qr);
         }
-        const response = await api.put(`/api/users/${userId}`, data);
+        const response = await api.put(`/users/${userId}`, data);
         return response.data;
     } else {
         const updatePayload: any = {};
@@ -160,7 +191,7 @@ export const editUserInformationAcc = async (
         }
 
         // ส่ง JSON Request
-        const response = await api.put(`/api/users/${userId}`, updatePayload);
+        const response = await api.put(`/users/${userId}`, updatePayload);
         return response.data;
     }
 }
@@ -174,8 +205,9 @@ export const createExpenseApi = async (expenseData: {
     amount: number;
     type: "EQUAL" | "PERCENTAGE" | "CUSTOM";
     title: string;
+    participants?: number[];
 }): Promise<any> => {
-    const response = await api.post("/api/expenses", expenseData);
+    const response = await api.post("/expenses", expenseData);
     return response.data;
 };
 
@@ -192,7 +224,7 @@ export const createExpenseItem = async (
     formData.append("amount", amount);
 
     const res = await api.post(
-        `/api/expenses/${expenseId}/items`,
+        `/expenses/${expenseId}/items`,
         formData,
         {
             headers: {
@@ -225,7 +257,7 @@ export const createExpenseItemShare = async (
     }
 
     const res = await api.post(
-        `/api/expenses/${expenseId}/items/${itemId}/shares`,
+        `/expenses/${expenseId}/items/${itemId}/shares`,
         formData,
         {
             headers: {
@@ -237,7 +269,7 @@ export const createExpenseItemShare = async (
 };
 
 export const getGroupById = async (groupId: number | string) => {
-  const { data } = await api.get(`/api/groups/${groupId}`);
+  const { data } = await api.get(`/groups/${groupId}`);
   return data; // คาดว่า { id, name, ownerUserId, members: [...], coverImageUrl, ... }
 };
 
@@ -268,7 +300,7 @@ export const updateGroup = async (
   if (params.coverFile) {
     fd.append('cover', params.coverFile);
   }
-  const { data } = await api.put(`/api/groups/${groupId}`, fd);
+  const { data } = await api.put(`/groups/${groupId}`, fd);
   return data;
 };
 
@@ -316,7 +348,7 @@ export const createGroup = async (
   }
 
   // ใช้ path ที่มี / ข้างหน้าเสมอ
-  const res = await api.post("/api/groups", fd);
+  const res = await api.post("/groups", fd);
   return res.data;
 };
 
@@ -349,7 +381,7 @@ const pickName = (u: any): string => {
 };
 
 export const getGroupMembers = async (groupId: number | string): Promise<User[]> => {
-  const { data: d } = await api.get(`/api/groups/${groupId}/members`);
+  const { data: d } = await api.get(`/groups/${groupId}/members`);
 
   const raw = Array.isArray(d) ? d
            : Array.isArray(d?.members) ? d.members
@@ -376,7 +408,7 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
 
 // เพิ่มสมาชิก 1 คน (ตามสเปค Swagger: body = { groupId, userId })
 export const addMember = async (groupId: number | string, userId: number | string) => {
-  return api.post(`/api/groups/${groupId}/members`, {
+  return api.post(`/groups/${groupId}/members`, {
     groupId: Number(groupId),
     userId: Number(userId),
   }, { headers: { 'Content-Type': 'application/json' }});
@@ -437,7 +469,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
 
   // 1) POST /api/users/batch  { ids: [...] }
   try {
-    const { data } = await api.post('/api/users/batch', { ids: uniq });
+    const { data } = await api.post('/users/batch', { ids: uniq });
     const arr = Array.isArray(data) ? data
       : Array.isArray(data?.users) ? data.users
       : Array.isArray(data?.items) ? data.items
@@ -452,7 +484,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
   // 2) GET /api/users?ids=1,2,3
   if (byId.size < uniq.length) {
     try {
-      const { data } = await api.get('/api/users', { params: { ids: uniq.join(',') } });
+      const { data } = await api.get('/users', { params: { ids: uniq.join(',') } });
       const arr = Array.isArray(data) ? data
         : Array.isArray(data?.users) ? data.users
         : Array.isArray(data?.items) ? data.items
@@ -470,7 +502,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
     for (const id of uniq) {
       if (byId.has(id)) continue;
       try {
-        const { data } = await api.get(`/api/users/${id}`);
+        const { data } = await api.get(`/users/${id}`);
         byId.set(id, data);
       } catch (_) {}
     }
@@ -489,9 +521,14 @@ export const fetchUserProfiles = async (ids: number[]) => {
   });
   return out;
 };
-// utils/api.ts
+// utils.ts
+export const getBalanceSummary = async (): Promise<{ youOweTotal: number; youAreOwedTotal: number }> => {
+    const response = await api.get('/me/balances/summary');
+    return response.data;
+};
+
 export const removeMember = async (groupId: number | string, userId: number | string) => {
-  return api.delete(`/api/groups/${groupId}/members/${userId}`);
+  return api.delete(`/groups/${groupId}/members/${userId}`);
 };
 
 export const removeMembers = async (groupId: number | string, userIds: Array<number | string>) => {
@@ -527,7 +564,7 @@ export const createBill = async (p: {
     throw new Error('Invalid payload: groupId/payerUserId/amount must be numbers');
   }
 
-  const { data } = await api.post('/api/expenses', body, {
+  const { data } = await api.post('/expenses', body, {
     headers: { 'Content-Type': 'application/json' },
   });
   return data; // ควรได้ { id, ... }
@@ -539,7 +576,7 @@ export const createBill = async (p: {
 
 // Get settlement details for a specific expense and user
 export const getSettlementDetails = async (expenseId: number, userId: number): Promise<Settlement> => {
-    const response = await api.get(`/api/expenses/${expenseId}/settlement/${userId}`);
+    const response = await api.get(`/expenses/${expenseId}/settlement/${userId}`);
     return response.data;
 };
 
@@ -554,10 +591,10 @@ export const submitPayment = async (
     const formData = new FormData();
     
     // Add receipt file (required)
-    formData.append('recelpt', receiptFile); // Note: API expects 'recelpt' (typo in API)
+    formData.append('receipt', receiptFile); // Note: API expects 'recelpt' (typo in API)
     
     const response = await api.post(
-        `/api/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
+        `/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
         formData
     );
     return response.data;
@@ -565,28 +602,35 @@ export const submitPayment = async (
 
 // Update the existing getPaymentDetails function to use the real API
 export const getPaymentDetails = async (expenseId: string, userId: string): Promise<PaymentDetails> => {
-    // First, get the settlement details from the real API
+    // First, get the settlement details for the user who needs to pay
     const settlement = await getSettlementDetails(Number(expenseId), Number(userId));
+
+    // Then, get the expense details to find the payer
+    const expenseDetails = await getBillDetails(expenseId);
+    const payerId = expenseDetails.payerUserId;
     
-    // Then, get user information to populate payer name and QR code
-    let payerName = `User ${settlement.userId}`;
+    // Then, get user information of the payer to populate payer name and QR code
+    let payerName = `User ${payerId}`;
     let qrCodeUrl = '';
-    
+    let phone = '';
+
     try {
-        const userInfo = await getUserInformation(settlement.userId.toString());
-        payerName = userInfo.name || userInfo.userName || payerName;
-        qrCodeUrl = userInfo.qrCodeUrl || userInfo.qrCode || '';
+        const payerInfo = await getUserInformation(payerId.toString());
+        payerName = payerInfo.name || payerInfo.userName || payerName;
+        qrCodeUrl = payerInfo.qrCodeUrl || payerInfo.qrCode || '';
+        phone = payerInfo.phone || '';
     } catch (error) {
-        console.error("Error fetching user info:", error);
+        console.error("Error fetching payer info:", error);
         // Use default values if user info fetch fails
-        qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
+        qrCodeUrl = `https:/.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
     }
-    
+
     return {
         transactionId: expenseId,
         payerName: payerName,
         amountToPay: settlement.remaining, // Use the remaining amount
         qrCodeUrl: qrCodeUrl,
+        phone: phone,
         // Include settlement details for reference
         expenseId: settlement.expenseId,
         userId: settlement.userId,
@@ -597,22 +641,15 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
     };
 };
 
-// Add this interface to your types file
-export interface Payment {
-  id: number;
-  expenseId: number;
-  fromUserId: number;
-  amount: number;
-  status: "PENDING" | "VERIFIED" | "REJECTED";
-  createdAt: string;
-  verifiedAt: string | null;
-  receiptId: number | null;
-  receiptFileUrl: string | null;
-}
+export const deleteGroup = async (groupId: string | number): Promise<any> => {
+    const response = await api.delete(`/groups/${groupId}`);
+    return response.data;
+};
+
 
 // Add this function to your api.ts file
 export const getExpensePayments = async (expenseId: number): Promise<Payment[]> => {
-  const response = await api.get(`/api/expenses/${expenseId}/payments`);
+  const response = await api.get(`/expenses/${expenseId}/payments`);
   return response.data;
 };
 
@@ -628,4 +665,14 @@ export const hasPendingPayment = async (expenseId: number, userId: number): Prom
     console.error("Error checking pending payments:", error);
     return false;
   }
+};
+
+export const getPayment = async (expenseId: number, paymentId: number): Promise<Payment> => {
+    const response = await api.get(`/expenses/${expenseId}/payments/${paymentId}`);
+    return response.data;
+};
+
+export const updatePaymentStatus = async (expenseId: number, paymentId: number, status: 'VERIFIED' | 'REJECTED'): Promise<Payment> => {
+    const response = await api.put(`/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
+    return response.data;
 };

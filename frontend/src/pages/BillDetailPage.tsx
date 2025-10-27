@@ -3,102 +3,145 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import { getBillDetails } from '../utils/api';
-import type { BillDetail } from '../types';
+import { getBillDetails, getExpenseSettlements, fetchUserProfiles, getExpensePayments } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
+import type { BillDetail, Payment } from '../types';
 
-const getStatusStyle = (status: 'done' | 'pay' | 'check') => {
-  switch (status) {
-    case 'done':
-      return { backgroundColor: '#52bf52' };
-    case 'pay':
-      return { backgroundColor: '#0d78f2' };
-    case 'check':
-      return { backgroundColor: '#efac4e' };
-  }
-};
+const getStatusStyle = (s: 'done' | 'pay' | 'check' | 'pending') =>
+  s === 'done' ? { backgroundColor: '#52bf52' } :
+    s === 'pay' ? { backgroundColor: '#0d78f2' } :
+    s === 'pending' ? { backgroundColor: '#ffc107' } :
+      { backgroundColor: '#efac4e' };
+
 
 type NavState = {
-  bill?: any; // object ที่ backend คืนตอน POST /api/expenses
+  bill?: any;
   ui?: {
-    title?: string;
-    amount?: number;
-    payerUserId?: number | string;
+    title?: string; amount?: number; payerUserId?: number | string;
+    members?: Array<{ id: number | string; name?: string; amount?: number; imageUrl?: string; email?: string }>;
     participants?: Array<{ id: number | string; name?: string; email?: string; imageUrl?: string }>;
-    createdAt?: string;
+    createdAt?: string; billId?: string | number; groupId?: string | number;
   };
+  groupId?: string | number;
 };
+
+
+const sliceDate = (d?: string) => (d ? String(d).slice(0, 10) : '');
 
 export const BillDetailPage: React.FC = () => {
   const navigate = useNavigate();
-  const { billId } = useParams<{ billId: string }>();
+  const { billId: billIdFromUrl } = useParams<{ billId: string }>();
   const location = useLocation() as { state?: NavState };
+  const { user } = useAuth();
 
-  // แปลง state ที่ส่งมาจากหน้า create → ให้กลายเป็น BillDetail เพื่อโชว์ทันที
-  const initialBill: BillDetail | null = useMemo(() => {
-    const nav = location.state;
-    if (!nav?.bill && !nav?.ui) return null;
+  const expenseId = useMemo(() => {
+    const id = location.state?.bill?.id ?? location.state?.ui?.billId ?? billIdFromUrl ?? '';
+    return String(id).trim();
+  }, [location.state, billIdFromUrl]);
 
-    const b = nav.bill ?? {};
-    const ui = nav.ui ?? {};
-    const title = b.title ?? ui.title ?? 'Expense';
-    const amount = Number(b.amount ?? ui.amount ?? 0);
-    const createdAt = (b.createdAt ?? ui.createdAt ?? new Date().toISOString()).toString();
-    const payerUserId = b.payerUserId ?? ui.payerUserId;
-
-    const participants = ui.participants ?? [];
-    const payerName =
-      participants.find(p => String(p.id) === String(payerUserId))?.name ??
-      `User #${payerUserId ?? ''}`;
-
-    const shareCount = participants.length || 1;
-    const perShare = shareCount > 0 ? Math.round((amount / shareCount) * 100) / 100 : 0;
-
-    const members: BillDetail['members'] = participants.map(p => ({
-      avatar: p.imageUrl || 'https://placehold.co/80x80?text=User',
-      name: p.name || (p.email ? p.email.split('@')[0] : `User #${p.id}`),
-      amount: perShare,
-      status: String(p.id) === String(payerUserId) ? 'done' : 'pay',
-    }));
-
-    return {
-      id: b.id ?? billId ?? '',
-      storeName: title,
-      payer: payerName,
-      date: createdAt.slice(0, 10),
-      members,
-    } as BillDetail;
-  }, [location.state, billId]);
-
-  const [bill, setBill] = useState<BillDetail | null>(initialBill);
-  const [loading, setLoading] = useState<boolean>(!initialBill);
+  const [bill, setBill] = useState<BillDetail | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // รีเฟรชจาก API ด้วย billId (ถ้ามี) เพื่อให้ข้อมูลจริงอัปเดตทีหลัง
+  // ... (useEffect for initial state from navigation)
+
+  // Load data from API
   useEffect(() => {
-    if (!billId) return;
+    if (!expenseId || !user) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const data = await getBillDetails(billId);
-        if (!cancelled) {
-          setBill(data);
-          setError(null);
-        }
+        const [exp, allSettlements, expensePayments] = await Promise.all([
+          getBillDetails(expenseId),
+          getExpenseSettlements(expenseId),
+          getExpensePayments(Number(expenseId))
+        ]);
+
+        if (cancelled) return;
+
+        setPayments(expensePayments);
+
+        const title = exp.title ?? exp.name ?? `Expense #${expenseId}`;
+        const dateStr = String(exp.createdAt ?? exp.date ?? '').slice(0, 10);
+        const payerUserId = exp.payerUserId ?? exp.payerId ?? exp.payer?.id;
+
+        const isPayer = String(user.id) === String(payerUserId);
+
+        const settlements = isPayer
+            ? allSettlements.filter(s => String(s.userId) !== String(payerUserId))
+            : allSettlements.filter(s => String(s.userId) === String(user.id));
+
+        const debtorIds = settlements.map(s => Number(s.userId)).filter(n => Number.isFinite(n));
+        const ids = Array.from(new Set([...debtorIds, Number(payerUserId)]));
+        const profileMap = await fetchUserProfiles(ids);
+
+        const mappedMembers = settlements.map((s, idx) => {
+          const uid = Number(s.userId ?? s.memberId ?? s.user?.id ?? idx);
+          const pendingPayment = expensePayments.find(p => p.fromUserId === uid && p.status === 'PENDING');
+
+          const owed = Number(s.owedAmount ?? s.owed ?? s.share ?? s.amount ?? 0);
+          const paid = Number(s.paidAmount ?? s.paid ?? 0);
+          const remIn = s.remaining;
+          const remaining = Number(remIn != null ? remIn : (owed - paid));
+
+          const settledFlag =
+            (typeof s.settled === 'boolean' ? s.settled : undefined)
+            ?? (typeof s.status === 'string' ? s.status.toUpperCase() === 'SETTLED' : undefined)
+            ?? (remaining <= 0);
+
+          let status: 'done' | 'pay' | 'check' | 'pending' = settledFlag ? 'done' : 'pay';
+          if (isPayer && pendingPayment) {
+            status = 'pending';
+          }
+
+          const prof = profileMap.get(uid) || {};
+          return {
+            id: uid,
+            name: prof.name || `User #${uid}`,
+            avatar: prof.imageUrl || 'https://placehold.co/80x80?text=User',
+            amount: Math.max(0, remaining),
+            status: status,
+            paymentId: pendingPayment?.id
+          };
+        });
+
+        const payerProfile = payerUserId != null ? profileMap.get(Number(payerUserId)) : undefined;
+        const payerName = payerProfile?.name || `User #${payerUserId}`;
+
+        if (cancelled) return;
+
+        setBill({
+          id: exp.id ?? expenseId,
+          storeName: title,
+          payer: payerName,
+          date: dateStr,
+          members: mappedMembers as unknown as BillDetail['members'],
+        });
+
+        setError(null);
+        setLoading(false);
       } catch (err: any) {
-        if (!initialBill) setError(err?.message ?? 'Load failed');
-      } finally {
-        if (!initialBill && !cancelled) setLoading(false);
+        if (!cancelled) {
+          setError(err?.message ?? 'Load failed');
+          setLoading(false);
+        }
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [billId, initialBill]);
+    return () => { cancelled = true; };
+  }, [expenseId, user]);
 
-  const handlePayClick = (status: 'done' | 'pay' | 'check') => {
-    if (status === 'pay' && bill) navigate(`/pay/${bill.id}`);
+  const handlePayClick = (status: string, memberId?: number | string, paymentId?: number) => {
+    if (status === 'pay') {
+        const paymentUserId = memberId ?? user?.id;
+        if (!expenseId) { alert('Missing expense id'); return; }
+        if (!paymentUserId) { alert('Missing user id for payment'); return; }
+        navigate(`/pay/${expenseId}/${paymentUserId}`);
+    } else if (status === 'pending' && paymentId) {
+        navigate(`/expense/${expenseId}/payment/${paymentId}/confirm`);
+    }
   };
 
   return (
@@ -116,46 +159,27 @@ export const BillDetailPage: React.FC = () => {
         {bill && (
           <>
             <div className="flex items-center">
-              <p className="text-lg font-semibold" style={{ color: '#0c0c0c' }}>
-                ร้าน: {bill.storeName}
-              </p>
-              <p className="text-lg font-semibold ml-8" style={{ color: '#0c0c0c' }}>
-                Payer: {bill.payer}
-              </p>
+              <p className="text-lg font-semibold text-[#0c0c0c]">Store: {bill.storeName}</p>
+              <p className="text-lg font-semibold ml-8 text-[#0c0c0c]">Payer: {bill.payer}</p>
             </div>
-            <p className="text-lg font-semibold mb-4" style={{ color: '#0c0c0c' }}>
-              Date: {bill.date}
-            </p>
+            <p className="text-lg font-semibold mb-4 text-[#0c0c0c]">Date: {bill.date}</p>
 
-            {bill.members.map((member, idx) => (
-              <div
-                key={idx}
-                className="bg-white p-3 rounded-lg shadow-lg flex items-center justify-between mb-4"
-              >
+            {(bill.members as any[]).map((member: any, idx: number) => (
+              <div key={idx} className="bg-white p-3 rounded-lg shadow-lg flex items-center justify-between mb-4">
                 <div className="flex items-center">
-                  <img
-                    src={member.avatar}
-                    alt="avatar"
-                    className="w-12 h-12 rounded-full mr-3"
-                  />
+                  <img src={member.avatar} alt="avatar" className="w-12 h-12 rounded-full mr-3" />
                   <div>
                     <p className="font-semibold">{member.name}</p>
-                    <p className="text-sm" style={{ color: '#628fa6' }}>
-                      Pay : {member.amount} Bath
-                    </p>
+                    <p className="text-sm text-[#628fa6]">Pay : {member.amount} Bath</p>
                   </div>
                 </div>
                 <div className="flex justify-center">
                   <button
                     className="w-24 text-center px-4 py-2 rounded-lg text-white font-bold"
                     style={getStatusStyle(member.status)}
-                    onClick={() => handlePayClick(member.status)}
+                    onClick={() => handlePayClick(member.status, member.id, member.paymentId)}
                   >
-                    {member.status === 'done'
-                      ? 'Done'
-                      : member.status === 'pay'
-                      ? 'Pay'
-                      : 'Check'}
+                    {member.status === 'done' ? 'Done' : member.status === 'pay' ? 'Pay' : member.status === 'pending' ? 'Verify' : 'Check'}
                   </button>
                 </div>
               </div>
@@ -167,3 +191,5 @@ export const BillDetailPage: React.FC = () => {
     </div>
   );
 };
+
+export default BillDetailPage;

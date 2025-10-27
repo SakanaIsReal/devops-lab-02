@@ -28,8 +28,8 @@ services:
     command:
       - >
         mysql -h db -uroot -p"$${MYSQL_ROOT_PASSWORD}"
-        -e "CREATE DATABASE IF NOT EXISTS 
-            CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+        -e "CREATE DATABASE IF NOT EXISTS \`$${MYSQL_DATABASE}\`
+          CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
     restart: "no"
 
   backend:

@@ -56,9 +56,7 @@ export const SignUpForm: React.FC = () => {
       
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred during sign up."
+        "Register failed try change another username or email"
       );
     }
   };

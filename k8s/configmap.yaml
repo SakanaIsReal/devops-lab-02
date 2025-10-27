@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: smartsplit
+data:
+  MYSQL_DATABASE: "smartsplit-db"
+  SPRING_PROFILES_ACTIVE: "prod"
+  SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: "200MB"
+  SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: "200MB"
+  APP_JWT_EXPIRATION_SECONDS: "86400"
