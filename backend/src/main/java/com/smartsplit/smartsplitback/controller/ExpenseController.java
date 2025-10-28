@@ -24,6 +24,8 @@ import org.springframework.http.ResponseEntity;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/expenses")
@@ -118,7 +120,8 @@ public class ExpenseController {
     @ResponseStatus(HttpStatus.CREATED)
     public ExpenseDto create(
             @RequestBody ExpenseDto in,
-            @RequestParam(name = "currency", defaultValue = "THB") String currency
+            @RequestParam(name = "currency", defaultValue = "THB") String currency,
+            @RequestParam(name = "ratesJson", required = false) String ratesJson
     ) {
         if (in.groupId() == null || in.payerUserId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId and payerUserId are required");
@@ -130,29 +133,57 @@ public class ExpenseController {
         if (p == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payer user not found");
 
         Map<String, BigDecimal> rates;
-        try {
-            rates = fx.getLiveRatesToThb();
-        } catch (Exception ex) {
 
-            if (!"THB".equalsIgnoreCase(currency)) {
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "Exchange rate service unavailable; cannot convert " + currency + " to THB right now");
+
+        if (ratesJson != null && !ratesJson.isBlank()) {
+            try {
+                var node = objectMapper.readTree(ratesJson);
+                if (!node.isObject()) throw new IllegalArgumentException("ratesJson must be an object");
+                Map<String, BigDecimal> tmp = new HashMap<>();
+                var fields = node.fields();
+                while (fields.hasNext()) {
+                    var f = fields.next();
+                    String ccy = f.getKey().toUpperCase(Locale.ROOT);
+                    if (!f.getValue().canConvertToExactIntegral() && !f.getValue().isNumber()) {
+                        throw new IllegalArgumentException("rate for " + ccy + " must be numeric");
+                    }
+                    BigDecimal v = f.getValue().decimalValue();
+                    if (v == null || v.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("rate for " + ccy + " must be > 0");
+                    }
+                    tmp.put(ccy, v);
+                }
+                tmp.putIfAbsent("THB", BigDecimal.ONE);
+                rates = tmp;
+            } catch (Exception ex) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid ratesJson: " + ex.getMessage());
             }
-            rates = Map.of("THB", BigDecimal.ONE);
+        } else {
+
+            try {
+                rates = fx.getLiveRatesToThb();
+            } catch (Exception ex) {
+                if (!"THB".equalsIgnoreCase(currency)) {
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                            "Exchange rate service unavailable; cannot convert " + currency + " to THB right now");
+                }
+                rates = Map.of("THB", BigDecimal.ONE);
+            }
         }
+
 
         BigDecimal thbAmount;
         if ("THB".equalsIgnoreCase(currency)) {
             thbAmount = in.amount();
         } else {
-            try {
-                thbAmount = fx.toThb(currency, in.amount(), rates);
-            } catch (IllegalArgumentException | NullPointerException e) {
-
+            BigDecimal rate = rates.get(currency.toUpperCase(Locale.ROOT));
+            if (rate == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Unsupported or missing currency: " + currency);
+                        "Missing rate for currency: " + currency);
             }
+            thbAmount = in.amount().multiply(rate).setScale(2, java.math.RoundingMode.HALF_UP);
         }
+
         Expense e = new Expense();
         e.setGroup(g);
         e.setPayer(p);
@@ -163,12 +194,12 @@ public class ExpenseController {
         try {
             e.setExchangeRatesJson(objectMapper.writeValueAsString(rates));
         } catch (Exception ex) {
-
             e.setExchangeRatesJson("{\"THB\":1}");
         }
 
         return toDto(expenses.save(e));
     }
+
 
 
     @PreAuthorize("@perm.canManageExpense(#id)")
