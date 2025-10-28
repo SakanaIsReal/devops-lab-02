@@ -40,6 +40,7 @@ public class ExpenseController {
 
     private final ExpenseExportService exportService;
     private final ExchangeRateService fx;
+    private final ObjectMapper objectMapper;
 
     public ExpenseController(ExpenseService expenses,
                              GroupService groups,
@@ -49,7 +50,8 @@ public class ExpenseController {
                              ExpenseSettlementService settlementService,
                              Perms perm,
                              ExpenseExportService exportService,
-                             ExchangeRateService fx) {
+                             ExchangeRateService fx,
+                             ObjectMapper objectMapper) {
         this.expenses = expenses;
         this.groups = groups;
         this.users = users;
@@ -59,6 +61,7 @@ public class ExpenseController {
         this.perm = perm;
         this.exportService = exportService;
         this.fx = fx;
+        this.objectMapper = objectMapper;
     }
 
     @PreAuthorize("@perm.isAdmin()")
@@ -73,10 +76,33 @@ public class ExpenseController {
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}")
-    public ExpenseDto get(@PathVariable Long id){
+    public ResponseEntity<?> get(@PathVariable Long id){
         var e = expenses.get(id);
-        if(e==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Expense not found");
-        return toDto(e);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
+
+        var dto = toDto(e);
+        com.fasterxml.jackson.databind.node.ObjectNode json = objectMapper.valueToTree(dto);
+
+        var statusNode = json.get("status");
+        if (statusNode != null && "SETTLED".equalsIgnoreCase(statusNode.asText())) {
+            Map<String, BigDecimal> rates = fx.getRatesToThb(e);
+            var items = itemService.listByExpense(id);
+
+            BigDecimal itemsTotal = (items == null || items.isEmpty())
+                    ? BigDecimal.ZERO
+                    : items.stream()
+                    .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal verifiedTotal = paymentService.sumVerified(id);
+            if (verifiedTotal == null) verifiedTotal = BigDecimal.ZERO;
+
+            if (verifiedTotal.compareTo(itemsTotal) >= 0) {
+                json.put("status", "COMPLETE");
+            }
+        }
+
+        return ResponseEntity.ok(json);
     }
 
     @PreAuthorize("@perm.isGroupMember(#groupId)")
@@ -88,37 +114,62 @@ public class ExpenseController {
     }
 
     @PreAuthorize("@perm.canCreateExpenseInGroup(#in.groupId())")
-    @PostMapping @ResponseStatus(HttpStatus.CREATED)
-    public ExpenseDto create(@RequestBody ExpenseDto in){
-        if(in.groupId()==null || in.payerUserId()==null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"groupId and payerUserId are required");
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ExpenseDto create(
+            @RequestBody ExpenseDto in,
+            @RequestParam(name = "currency", defaultValue = "THB") String currency
+    ) {
+        if (in.groupId() == null || in.payerUserId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId and payerUserId are required");
+        }
 
         Group g = groups.get(in.groupId());
-        if(g==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Group not found");
+        if (g == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
         User p = users.get(in.payerUserId());
-        if(p==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Payer user not found");
+        if (p == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payer user not found");
 
+        Map<String, BigDecimal> rates;
+        try {
+            rates = fx.getLiveRatesToThb();
+        } catch (Exception ex) {
+
+            if (!"THB".equalsIgnoreCase(currency)) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "Exchange rate service unavailable; cannot convert " + currency + " to THB right now");
+            }
+            rates = Map.of("THB", BigDecimal.ONE);
+        }
+
+        BigDecimal thbAmount;
+        if ("THB".equalsIgnoreCase(currency)) {
+            thbAmount = in.amount();
+        } else {
+            try {
+                thbAmount = fx.toThb(currency, in.amount(), rates);
+            } catch (IllegalArgumentException | NullPointerException e) {
+
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Unsupported or missing currency: " + currency);
+            }
+        }
         Expense e = new Expense();
         e.setGroup(g);
         e.setPayer(p);
-        e.setAmount(in.amount());
+        e.setAmount(thbAmount);
         e.setType(in.type());
         e.setTitle(in.title());
         e.setStatus(in.status());
+        try {
+            e.setExchangeRatesJson(objectMapper.writeValueAsString(rates));
+        } catch (Exception ex) {
 
-        if (e.getExchangeRatesJson() == null || e.getExchangeRatesJson().isBlank()) {
-            try {
-                var rates = fx.getLiveRatesToThb();                      // map<Ccy, rateToTHB>
-                String json = new ObjectMapper().writeValueAsString(rates);
-                e.setExchangeRatesJson(json);
-            } catch (Exception ex) {
-                // กันพัง: อย่างน้อยให้ THB = 1
-                e.setExchangeRatesJson("{\"THB\":1}");
-            }
+            e.setExchangeRatesJson("{\"THB\":1}");
         }
 
         return toDto(expenses.save(e));
     }
+
 
     @PreAuthorize("@perm.canManageExpense(#id)")
     @PutMapping("/{id}")
@@ -204,8 +255,23 @@ public class ExpenseController {
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/settlement")
-    public List<ExpenseSettlementDto> settlementAll(@PathVariable Long id) {
-        return settlementService.allSettlements(id);
+    public ResponseEntity<?> settlementAll(@PathVariable Long id) {
+        var e = expenses.get(id);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
+
+        Long payerId = e.getPayer().getId();
+        var list = settlementService.allSettlements(id);
+        var array = objectMapper.valueToTree(list);
+        if (array.isArray()) {
+            for (var node : array) {
+                var userIdNode = node.get("userId");
+                if (userIdNode != null && userIdNode.isNumber() && userIdNode.asLong() == payerId) {
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("settled", true);
+                    // ((ObjectNode) node).put("amountDue", 0);
+                }
+            }
+        }
+        return ResponseEntity.ok(array);
     }
 
     @PreAuthorize("isAuthenticated()")
@@ -246,3 +312,4 @@ public class ExpenseController {
         );
     }
 }
+

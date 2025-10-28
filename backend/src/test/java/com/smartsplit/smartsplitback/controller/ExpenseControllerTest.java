@@ -55,11 +55,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc(addFilters = false)
 @Import({
-        ExpenseApiWebMvcTest.MethodSecurityTestConfig.class,
-        ExpenseApiWebMvcTest.SecurityExceptionHandler.class
+        ExpenseControllerTest.MethodSecurityTestConfig.class,
+        ExpenseControllerTest.SecurityExceptionHandler.class
 })
 @WithMockUser(username = "test-user", roles = {"USER"})
-class ExpenseApiWebMvcTest {
+class ExpenseControllerTest {
 
     @TestConfiguration
     @EnableMethodSecurity(prePostEnabled = true)
@@ -474,6 +474,7 @@ class ExpenseApiWebMvcTest {
 
     @Test @DisplayName("GET /api/expenses/{id}/settlement -> list all settlements")
     void settlement_all() throws Exception {
+        when(expenses.get(100L)).thenReturn(e);
         var s1 = makeSettlementDto(100L, 20L, new BigDecimal("10.00"));
         var s2 = makeSettlementDto(100L, 21L, new BigDecimal("15.50"));
         when(settlementService.allSettlements(100L)).thenReturn(List.of(s1, s2));
@@ -839,5 +840,57 @@ class ExpenseApiWebMvcTest {
         } catch (Exception ex) {
             throw new RuntimeException("Failed to construct ExpenseSettlementDto reflectively", ex);
         }
+    }
+    @Test
+    @DisplayName("GET /api/expenses/{id}/settlement -> owner is always settled=true in response")
+    void settlement_all_owner_forced_settled() throws Exception {
+        when(expenses.get(100L)).thenReturn(e);
+        var ownerSettlement = makeSettlementDto(100L, 20L, new BigDecimal("10.00"));
+        var otherSettlement = makeSettlementDto(100L, 21L, new BigDecimal("15.50"));
+        when(settlementService.allSettlements(100L)).thenReturn(List.of(ownerSettlement, otherSettlement));
+
+        mockMvc.perform(get("/api/expenses/100/settlement"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].userId").value(20))
+                .andExpect(jsonPath("$[0].settled").value(true));
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{id} -> status becomes COMPLETE when SETTLED and verifiedTotal >= itemsTotal")
+    void get_by_id_status_complete_when_paid_in_full() throws Exception {
+        e.setStatus(ExpenseStatus.SETTLED);
+        when(expenses.get(100L)).thenReturn(e);
+
+        when(itemService.listByExpense(100L)).thenReturn(List.of(itemUsd, itemThb));
+        Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"), "THB", BigDecimal.ONE);
+        when(fx.getRatesToThb(e)).thenReturn(rates);
+        when(fx.toThb("USD", new BigDecimal("10.00"), rates)).thenReturn(new BigDecimal("362.50"));
+        when(fx.toThb("THB", new BigDecimal("50.00"), rates)).thenReturn(new BigDecimal("50.00"));
+        when(paymentService.sumVerified(100L)).thenReturn(new BigDecimal("412.50"));
+
+        mockMvc.perform(get("/api/expenses/100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.status").value("COMPLETE"));
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{id} -> status stays SETTLED when verifiedTotal < itemsTotal")
+    void get_by_id_status_stays_settled_when_not_fully_paid() throws Exception {
+        e.setStatus(ExpenseStatus.SETTLED);
+        when(expenses.get(100L)).thenReturn(e);
+
+        when(itemService.listByExpense(100L)).thenReturn(List.of(itemUsd, itemThb));
+        Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"), "THB", BigDecimal.ONE);
+        when(fx.getRatesToThb(e)).thenReturn(rates);
+        when(fx.toThb("USD", new BigDecimal("10.00"), rates)).thenReturn(new BigDecimal("362.50"));
+        when(fx.toThb("THB", new BigDecimal("50.00"), rates)).thenReturn(new BigDecimal("50.00"));
+        when(paymentService.sumVerified(100L)).thenReturn(new BigDecimal("400.00"));
+
+        mockMvc.perform(get("/api/expenses/100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.status").value("SETTLED"));
     }
 }
