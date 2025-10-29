@@ -55,11 +55,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc(addFilters = false)
 @Import({
-        ExpenseApiWebMvcTest.MethodSecurityTestConfig.class,
-        ExpenseApiWebMvcTest.SecurityExceptionHandler.class
+        ExpenseControllerTest.MethodSecurityTestConfig.class,
+        ExpenseControllerTest.SecurityExceptionHandler.class
 })
 @WithMockUser(username = "test-user", roles = {"USER"})
-class ExpenseApiWebMvcTest {
+class ExpenseControllerTest {
 
     @TestConfiguration
     @EnableMethodSecurity(prePostEnabled = true)
@@ -474,6 +474,7 @@ class ExpenseApiWebMvcTest {
 
     @Test @DisplayName("GET /api/expenses/{id}/settlement -> list all settlements")
     void settlement_all() throws Exception {
+        when(expenses.get(100L)).thenReturn(e);
         var s1 = makeSettlementDto(100L, 20L, new BigDecimal("10.00"));
         var s2 = makeSettlementDto(100L, 21L, new BigDecimal("15.50"));
         when(settlementService.allSettlements(100L)).thenReturn(List.of(s1, s2));
@@ -840,4 +841,361 @@ class ExpenseApiWebMvcTest {
             throw new RuntimeException("Failed to construct ExpenseSettlementDto reflectively", ex);
         }
     }
+    @Test
+    @DisplayName("GET /api/expenses/{id}/settlement -> owner is always settled=true in response")
+    void settlement_all_owner_forced_settled() throws Exception {
+        when(expenses.get(100L)).thenReturn(e);
+        var ownerSettlement = makeSettlementDto(100L, 20L, new BigDecimal("10.00"));
+        var otherSettlement = makeSettlementDto(100L, 21L, new BigDecimal("15.50"));
+        when(settlementService.allSettlements(100L)).thenReturn(List.of(ownerSettlement, otherSettlement));
+
+        mockMvc.perform(get("/api/expenses/100/settlement"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].userId").value(20))
+                .andExpect(jsonPath("$[0].settled").value(true));
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{id} -> status becomes COMPLETE when SETTLED and verifiedTotal >= itemsTotal")
+    void get_by_id_status_complete_when_paid_in_full() throws Exception {
+        e.setStatus(ExpenseStatus.SETTLED);
+        when(expenses.get(100L)).thenReturn(e);
+
+        when(itemService.listByExpense(100L)).thenReturn(List.of(itemUsd, itemThb));
+        Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"), "THB", BigDecimal.ONE);
+        when(fx.getRatesToThb(e)).thenReturn(rates);
+        when(fx.toThb("USD", new BigDecimal("10.00"), rates)).thenReturn(new BigDecimal("362.50"));
+        when(fx.toThb("THB", new BigDecimal("50.00"), rates)).thenReturn(new BigDecimal("50.00"));
+        when(paymentService.sumVerified(100L)).thenReturn(new BigDecimal("412.50"));
+
+        mockMvc.perform(get("/api/expenses/100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.status").value("COMPLETE"));
+    }
+
+    @Test
+    @DisplayName("GET /api/expenses/{id} -> status stays SETTLED when verifiedTotal < itemsTotal")
+    void get_by_id_status_stays_settled_when_not_fully_paid() throws Exception {
+        e.setStatus(ExpenseStatus.SETTLED);
+        when(expenses.get(100L)).thenReturn(e);
+
+        when(itemService.listByExpense(100L)).thenReturn(List.of(itemUsd, itemThb));
+        Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"), "THB", BigDecimal.ONE);
+        when(fx.getRatesToThb(e)).thenReturn(rates);
+        when(fx.toThb("USD", new BigDecimal("10.00"), rates)).thenReturn(new BigDecimal("362.50"));
+        when(fx.toThb("THB", new BigDecimal("50.00"), rates)).thenReturn(new BigDecimal("50.00"));
+        when(paymentService.sumVerified(100L)).thenReturn(new BigDecimal("400.00"));
+
+        mockMvc.perform(get("/api/expenses/100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.status").value("SETTLED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> create with custom rates (USD) converts amount and saves rates")
+    void create_with_custom_rates_usd_success() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(301L);
+            return arg;
+        });
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("123.45"),
+                ExpenseType.EQUAL, "Dinner", ExpenseStatus.OPEN, null);
+
+        String ratesJson = objectMapper.writeValueAsString(Map.of(
+                "THB", BigDecimal.ONE,
+                "USD", new BigDecimal("36.25"),
+                "JPY", new BigDecimal("0.245")
+        ));
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(301))
+                .andExpect(jsonPath("$.amount").value(4475.06))
+                .andExpect(jsonPath("$.groupId").value(10))
+                .andExpect(jsonPath("$.payerUserId").value(20));
+
+        verify(fx, never()).getLiveRatesToThb();
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        String savedRates = cap.getValue().getExchangeRatesJson();
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> create with custom rates (THB currency) keeps amount unchanged")
+    void create_with_custom_rates_thb_success() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(302L);
+            return arg;
+        });
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("500.00"),
+                ExpenseType.EQUAL, "Market", ExpenseStatus.OPEN, null);
+
+        String ratesJson = objectMapper.writeValueAsString(Map.of(
+                "USD", new BigDecimal("36.25")
+        ));
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "THB")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(302))
+                .andExpect(jsonPath("$.amount").value(500.00));
+
+        verify(fx, never()).getLiveRatesToThb();
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"THB\":1");
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates missing rate for specified currency -> 400")
+    void create_with_custom_rates_missing_currency_rate_400() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
+                ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
+
+        String ratesJson = objectMapper.writeValueAsString(Map.of(
+                "THB", BigDecimal.ONE,
+                "EUR", new BigDecimal("39.90")
+        ));
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isBadRequest());
+
+        verify(expenses, never()).save(any());
+        verify(fx, never()).getLiveRatesToThb();
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates invalid JSON -> 400")
+    void create_with_custom_rates_invalid_json_400() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
+                ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", "{invalid")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isBadRequest());
+
+        verify(expenses, never()).save(any());
+        verify(fx, never()).getLiveRatesToThb();
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates non-numeric value -> 400")
+    void create_with_custom_rates_non_numeric_rate_400() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
+                ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
+
+        String ratesJson = "{\"THB\":1,\"USD\":\"abc\"}";
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isBadRequest());
+
+        verify(expenses, never()).save(any());
+        verify(fx, never()).getLiveRatesToThb();
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates zero/negative -> 400")
+    void create_with_custom_rates_non_positive_rate_400() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
+                ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
+
+        String ratesJson = "{\"THB\":1,\"USD\":0}";
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isBadRequest());
+
+        verify(expenses, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates with lowercase keys are normalized to uppercase")
+    void create_with_custom_rates_lowercase_keys_ok() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(303L);
+            return arg;
+        });
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
+                ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
+
+        String ratesJson = "{\"thb\":1,\"usd\":36.25}";
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(303))
+                .andExpect(jsonPath("$.amount").value(362.50));
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"USD\":36.25").contains("\"THB\":1");
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates without THB should add THB:1 automatically")
+    void create_with_custom_rates_adds_thb_default() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(304L);
+            return arg;
+        });
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("1.00"),
+                ExpenseType.EQUAL, "Tip", ExpenseStatus.OPEN, null);
+
+        String ratesJson = "{\"USD\":36.25}";
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(304))
+                .andExpect(jsonPath("$.amount").value(36.25));
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"THB\":1");
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> custom rates provided: should not call live FX even if live would fail")
+    void create_with_custom_rates_ignores_live_fx_even_if_live_fails() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(305L);
+            return arg;
+        });
+        when(fx.getLiveRatesToThb()).thenThrow(new RuntimeException("should not be called"));
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("2.00"),
+                ExpenseType.EQUAL, "Water", ExpenseStatus.OPEN, null);
+
+        String ratesJson = "{\"THB\":1,\"USD\":36.25}";
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .param("ratesJson", ratesJson)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(305))
+                .andExpect(jsonPath("$.amount").value(72.50));
+
+        verify(fx, never()).getLiveRatesToThb();
+    }
+
+    @Test
+    @DisplayName("POST /api/expenses -> no custom rates: uses live FX and converts")
+    void create_without_custom_rates_uses_live_fx() throws Exception {
+        when(groups.get(10L)).thenReturn(g);
+        when(users.get(20L)).thenReturn(payer);
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "USD", new BigDecimal("36.25")
+        ));
+        when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
+            Expense arg = inv.getArgument(0);
+            arg.setId(306L);
+            return arg;
+        });
+
+        var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("3.00"),
+                ExpenseType.EQUAL, "Bus", ExpenseStatus.OPEN, null);
+
+        mockMvc.perform(
+                        post("/api/expenses")
+                                .param("currency", "USD")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(in))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(306))
+                .andExpect(jsonPath("$.amount").value(108.75));
+
+        verify(fx, times(1)).getLiveRatesToThb();
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        String savedRates = cap.getValue().getExchangeRatesJson();
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
+    }
+
 }
