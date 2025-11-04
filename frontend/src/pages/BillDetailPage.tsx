@@ -10,8 +10,8 @@ import type { BillDetail, Payment } from '../types';
 const getStatusStyle = (s: 'done' | 'pay' | 'check' | 'pending') =>
   s === 'done' ? { backgroundColor: '#52bf52' } :
     s === 'pay' ? { backgroundColor: '#0d78f2' } :
-    s === 'pending' ? { backgroundColor: '#ffc107' } :
-      { backgroundColor: '#efac4e' };
+      s === 'pending' ? { backgroundColor: '#ffc107' } :
+        { backgroundColor: '#efac4e' };
 
 
 type NavState = {
@@ -38,6 +38,8 @@ export const BillDetailPage: React.FC = () => {
     const id = location.state?.bill?.id ?? location.state?.ui?.billId ?? billIdFromUrl ?? '';
     return String(id).trim();
   }, [location.state, billIdFromUrl]);
+
+  const [totalLeft, setTotalLeft] = useState<number>(0);
 
   const [bill, setBill] = useState<BillDetail | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -70,8 +72,8 @@ export const BillDetailPage: React.FC = () => {
         const isPayer = String(user.id) === String(payerUserId);
 
         const settlements = isPayer
-            ? allSettlements.filter(s => String(s.userId) !== String(payerUserId))
-            : allSettlements.filter(s => String(s.userId) === String(user.id));
+          ? allSettlements.filter(s => String(s.userId) !== String(payerUserId))
+          : allSettlements.filter(s => String(s.userId) === String(user.id));
 
         const debtorIds = settlements.map(s => Number(s.userId)).filter(n => Number.isFinite(n));
         const ids = Array.from(new Set([...debtorIds, Number(payerUserId)]));
@@ -132,64 +134,136 @@ export const BillDetailPage: React.FC = () => {
 
     return () => { cancelled = true; };
   }, [expenseId, user]);
-
+  useEffect(() => {
+    if (bill?.members) {
+      const count = bill.members.filter((m: any) => m.status !== 'done').length;
+      setTotalLeft(count);
+    }
+  }, [bill]);
   const handlePayClick = (status: string, memberId?: number | string, paymentId?: number) => {
     if (status === 'pay') {
-        const paymentUserId = memberId ?? user?.id;
-        if (!expenseId) { alert('Missing expense id'); return; }
-        if (!paymentUserId) { alert('Missing user id for payment'); return; }
-        navigate(`/pay/${expenseId}/${paymentUserId}`);
+      const paymentUserId = memberId ?? user?.id;
+      if (!expenseId) { alert('Missing expense id'); return; }
+      if (!paymentUserId) { alert('Missing user id for payment'); return; }
+      navigate(`/pay/${expenseId}/${paymentUserId}`);
     } else if (status === 'pending' && paymentId) {
-        navigate(`/expense/${expenseId}/payment/${paymentId}/confirm`);
+      navigate(`/expense/${expenseId}/payment/${paymentId}/confirm`);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 flex flex-col">
       <Navbar />
-      <div className="p-4 flex-grow pb-16">
+      <div className="p-6 flex-grow pb-20">
         <CircleBackButton onClick={() => navigate(-1)} />
-        <div className="flex items-center justify-between mt-4 mb-6">
-          <h1 className="text-2xl font-bold text-[#2c4359]">Bill Detail</h1>
+
+        {/* Header Section */}
+        <div className="flex items-center justify-between mt-6 mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-[#2c4359] tracking-tight">Bill Detail</h1>
+            <p className="text-slate-500 text-1xl mt-1">
+              Transactions Left:{' '}
+              <span className="font-semibold text-[#2c4359]">{totalLeft}</span>
+            </p>
+          </div>
+
         </div>
 
-        {loading && <p>Loading...</p>}
-        {error && <p className="text-red-500">Error: {error}</p>}
+        {loading && (
+          <div className="text-center text-slate-500 mt-10 text-lg animate-pulse">
+            Loading...
+          </div>
+        )}
+
+        {error && (
+          <p className="text-red-500 text-center font-medium mt-10">Error: {error}</p>
+        )}
 
         {bill && (
           <>
-            <div className="flex items-center">
-              <p className="text-lg font-semibold text-[#0c0c0c]">Store: {bill.storeName}</p>
-              <p className="text-lg font-semibold ml-8 text-[#0c0c0c]">Payer: {bill.payer}</p>
-            </div>
-            <p className="text-lg font-semibold mb-4 text-[#0c0c0c]">Date: {bill.date}</p>
-
-            {(bill.members as any[]).map((member: any, idx: number) => (
-              <div key={idx} className="bg-white p-3 rounded-lg shadow-lg flex items-center justify-between mb-4">
-                <div className="flex items-center">
-                  <img src={member.avatar} alt="avatar" className="w-12 h-12 rounded-full mr-3" />
-                  <div>
-                    <p className="font-semibold">{member.name}</p>
-                    <p className="text-sm text-[#628fa6]">Pay : {member.amount} Bath</p>
-                  </div>
-                </div>
-                <div className="flex justify-center">
-                  <button
-                    className="w-24 text-center px-4 py-2 rounded-lg text-white font-bold"
-                    style={getStatusStyle(member.status)}
-                    onClick={() => handlePayClick(member.status, member.id, member.paymentId)}
-                  >
-                    {member.status === 'done' ? 'Done' : member.status === 'pay' ? 'Pay' : member.status === 'pending' ? 'Verify' : 'Check'}
-                  </button>
+            {/* Bill Info */}
+            <div className="bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-2xl p-5 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center  gap-5">
+                <p className="text-lg font-semibold text-[#0c0c0c]">
+                  Bill Name: <span className="font-normal">{bill.storeName}</span>
+                </p>
+               
+                <p className="text-lg font-semibold text-[#0c0c0c]">
+                  Payer: <span className="font-normal">{bill.payer}</span>
+                </p>
+                 <div className="bg-white shadow-sm rounded-xl px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200">
+                  Date : {bill?.date || '—'}
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Members Section */}
+            <div className="space-y-4">
+              {(bill.members as any[]).map((member: any, idx: number) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between bg-white/90 backdrop-blur-sm border border-slate-200
+                           rounded-2xl p-4 shadow-sm hover:shadow-md transition duration-200"
+                >
+                  <div className="flex items-center space-x-4">
+                    <div className="relative">
+                      <img
+                        src={member.avatar}
+                        alt={member.name}
+                        className="w-12 h-12 rounded-full border-2 border-white shadow-md"
+                      />
+                      <span
+                        className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border border-white ${member.status === 'done'
+                          ? 'bg-green-500'
+                          : member.status === 'pending'
+                            ? 'bg-yellow-400'
+                            : 'bg-blue-500'
+                          }`}
+                      />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-800">{member.name}</p>
+                      <p className="text-sm text-slate-500">
+                        Total Left:{' '}
+                        <span className="font-medium text-slate-700">
+                          {member.amount.toFixed(2)}
+                        </span>{' '}
+                        Baht
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    className={`min-w-[90px] px-4 py-2 font-semibold text-white rounded-xl shadow transition duration-200
+                    ${member.status === 'done'
+                        ? 'bg-green-500 hover:bg-green-600'
+                        : member.status === 'pending'
+                          ? 'bg-yellow-400 hover:bg-yellow-500 text-slate-800'
+                          : 'bg-blue-500 hover:bg-blue-600'
+                      }`}
+                    onClick={() =>
+                      handlePayClick(member.status, member.id, member.paymentId)
+                    }
+                  >
+                    {member.status === 'done'
+                      ? 'Done'
+                      : member.status === 'pay'
+                        ? 'Pay'
+                        : member.status === 'pending'
+                          ? 'Verify'
+                          : 'Check'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </>
         )}
       </div>
+
       <BottomNav activeTab={undefined} />
     </div>
   );
+
 };
 
 export default BillDetailPage;
