@@ -16,7 +16,7 @@ import java.util.*;
 public class ExchangeRateService {
 
     private static final MathContext MC = new MathContext(18, RoundingMode.HALF_UP);
-    private static final int OUT_SCALE = 2;
+    private static final int OUT_SCALE = 6;
 
     private final ObjectMapper om = new ObjectMapper();
     private final RestTemplate http = new RestTemplate();

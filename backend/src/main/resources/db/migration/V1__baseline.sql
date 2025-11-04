@@ -67,9 +67,9 @@ CREATE TABLE `expense_items` (
 -- 5) การแบ่งส่วนแชร์ของไอเท็ม
 CREATE TABLE `expense_item_shares` (
                                        `share_id` BIGINT NOT NULL AUTO_INCREMENT,
-                                       `share_original_value` DECIMAL(19,2) DEFAULT NULL,
-                                       `share_percent` DECIMAL(5,2) DEFAULT NULL,
-                                       `share_value` DECIMAL(19,2) DEFAULT NULL,
+                                       `share_original_value` DECIMAL(19,6) DEFAULT NULL,
+                                       `share_percent` DECIMAL(5,6) DEFAULT NULL,
+                                       `share_value` DECIMAL(19,6) DEFAULT NULL,
                                        `expense_item_id` BIGINT NOT NULL,
                                        `participant_user_id` BIGINT NOT NULL,
                                        PRIMARY KEY (`share_id`),

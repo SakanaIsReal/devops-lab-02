@@ -20,7 +20,7 @@ import com.smartsplit.smartsplitback.security.Perms;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-
+import java.math.RoundingMode;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -267,15 +267,18 @@ public class ExpenseController {
                 ? BigDecimal.ZERO
                 : list.stream()
                 .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal verifiedTotal = paymentService.sumVerified(id);
+        BigDecimal verifiedTotal = paymentService.sumVerified(id)
+                .setScale(2, RoundingMode.HALF_UP);
 
         return Map.of(
                 "itemsTotal", itemsTotalThb,
                 "verifiedTotal", verifiedTotal
         );
     }
+
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/settlement/{userId}")
