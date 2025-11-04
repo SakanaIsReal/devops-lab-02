@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import CircleBackButton from '../components/CircleBackButton';
 import Navbar from '../components/Navbar';
 import { UserPlusIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { searchUsers, createGroup , addMembers } from '../utils/api';
-import { User } from '../types';
+import { searchUsers, createGroup, addMembers, getGroups, getGroupMembers, getUserInformation } from '../utils/api';
+import { User, Group } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
 const CreateGroupPage: React.FC = () => {
@@ -12,28 +12,23 @@ const CreateGroupPage: React.FC = () => {
   const { user } = useAuth();
 
   const [groupName, setGroupName] = useState('');
-  const [participants, setParticipants] = useState<User[]>([]);
+  const [participants, setParticipants] = useState<User[]>(user ? [user] : []);
   const [participantName, setParticipantName] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // NEW: รูปปกกลุ่ม
+  // รูปปกกลุ่ม
   const [groupImageFile, setGroupImageFile] = useState<File | null>(null);
   const [groupImagePreview, setGroupImagePreview] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
 
-  // --- ให้มีผู้ใช้ปัจจุบันในลิสต์เสมอและกันซ้ำ ---
-  useEffect(() => {
-    if (user) {
-      setParticipants((prev) => {
-        const exists = prev.some(p => String(p.id) === String(user.id));
-        return exists ? prev : [user, ...prev];
-      });
-    }
-  }, [user]);
+  // กลุ่ม (สำหรับค้นหา)
+  const [groupSearch, setGroupSearch] = useState('');
+  const [groupResults, setGroupResults] = useState<Group[]>([]);
+  const [isGroupSearching, setIsGroupSearching] = useState(false);
 
-  // --- เสิร์ชผู้ใช้ด้วย debounce + try/catch ---
+  // ------------------- Search users -------------------
   useEffect(() => {
     if (!participantName.trim()) {
       setSearchResults([]);
@@ -45,15 +40,11 @@ const CreateGroupPage: React.FC = () => {
       try {
         setIsSearching(true);
         const results = await searchUsers(participantName.trim());
-
-        // normalize ให้หน้าใช้ได้เสมอ
         const normalized: User[] = results.map((u: any) => ({
           ...u,
           name: u.userName ?? u.name ?? '',
           imageUrl: u.avatarUrl ?? u.imageUrl ?? '',
         }));
-
-        // ไม่โชว์ตัวเองในผลลัพธ์
         const filtered = normalized.filter(u => String(u.id) !== String(user?.id));
         if (!cancelled) setSearchResults(filtered);
       } catch (e) {
@@ -67,6 +58,31 @@ const CreateGroupPage: React.FC = () => {
     return () => { cancelled = true; clearTimeout(t); };
   }, [participantName, user]);
 
+  // ------------------- Search groups -------------------
+  useEffect(() => {
+    if (!groupSearch.trim()) {
+      setGroupResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        setIsGroupSearching(true);
+        const results = await getGroups(groupSearch.trim());
+        if (!cancelled) setGroupResults(results);
+      } catch (err) {
+        if (!cancelled) setGroupResults([]);
+        console.error("search groups error:", err);
+      } finally {
+        if (!cancelled) setIsGroupSearching(false);
+      }
+    }, 500);
+
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [groupSearch]);
+
+  // ------------------- Participant handlers -------------------
   const handleAddParticipant = (u: User) => {
     if (!u) return;
     setParticipants(prev => {
@@ -82,7 +98,7 @@ const CreateGroupPage: React.FC = () => {
     setParticipants(prev => prev.filter(p => String(p.id) !== String(id)));
   };
 
-  // NEW: เลือกรูป + validation เบื้องต้น
+  // ------------------- Group image -------------------
   const handleImageChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     setImageError(null);
     const file = e.target.files?.[0];
@@ -111,43 +127,80 @@ const CreateGroupPage: React.FC = () => {
     setGroupImagePreview(null);
   };
 
+  // ------------------- Create group -------------------
   const handleCreateGroup = async () => {
     if (!groupName.trim()) { alert('กรุณากรอก Group Name'); return; }
     if (participants.length === 0) { alert('ต้องมีสมาชิกอย่างน้อย 1 คน'); return; }
 
     setIsCreating(true);
     try {
-      // 1) สร้างกลุ่ม (multipart: group JSON + cover File) — ใช้ API ของคุณที่รองรับอยู่แล้ว
       const newGroup = await createGroup(groupName, participants, {
         ownerUserId: user?.id,
-        cover: groupImageFile || undefined, // <<<<<< ส่งไฟล์ไปตาม API
+        cover: groupImageFile || undefined,
       });
       if (!newGroup?.id) throw new Error('No group id returned');
 
-      // 2) เตรียม userIds แบบ unique และ “ตัด owner ออก” (ถ้า BE auto-add owner)
       const uniqueIds = Array.from(new Set(participants.map(p => Number(p.id))));
       const ownerId = Number(user?.id);
       const memberIds = uniqueIds.filter(id => id !== ownerId);
 
-      // 3) เพิ่มเฉพาะคนที่ยังไม่อยู่ในกลุ่ม (ฟังก์ชันจะเช็คให้ + ข้าม 409 ให้อยู่แล้ว)
       await addMembers(newGroup.id, memberIds);
-
-      // 4) ไปหน้า group
       navigate(`/group/${newGroup.id}`, { state: { group: newGroup } });
 
     } catch (error: any) {
-      console.error('CREATE FLOW FAILED', {
-        status: error?.response?.status,
-        url: error?.config?.url,
-        method: error?.config?.method,
-        data: error?.response?.data,
-      });
+      console.error('CREATE FLOW FAILED', error);
       alert(`สร้างกลุ่มไม่สำเร็จ: ${error?.response?.status ?? ''}`);
     } finally {
       setIsCreating(false);
     }
   };
 
+  // ------------------- Add members from group -------------------
+  const handleImportGroupMembers = async (group: Group) => {
+    try {
+      const memberLinks = await getGroupMembers(group.id);
+      // memberLinks = [{ groupId: 1, userId: 1 }, ...]
+
+      // ดึง userId ทั้งหมด
+      const userIds = memberLinks.map((m: any) => m.userId);
+
+      // ดึงข้อมูลผู้ใช้เต็มจาก getUserInformation()
+      const allUsers = await Promise.all(
+        userIds.map(async (id: number) => {
+          try {
+            const u = await getUserInformation(id);
+            return {
+              id: u.id,
+              name: u.userName ?? u.name ?? '',
+              phone: u.phone ?? '',
+              imageUrl: u.avatarUrl ?? u.imageUrl ?? '',
+            };
+          } catch (err) {
+            console.warn(`Failed to fetch user info for ID ${id}`, err);
+            return null;
+          }
+        })
+      );
+
+      // กรองข้อมูล null + กรองไม่ให้รวมตัวเอง
+      const validUsers = allUsers.filter(Boolean) as User[];
+      const filtered = validUsers.filter(u => String(u.id) !== String(user?.id));
+
+      // กันซ้ำก่อนเพิ่ม
+      const existingIds = new Set(participants.map(p => p.id));
+      const newMembers = filtered.filter(m => !existingIds.has(m.id));
+
+      setParticipants(prev => [...prev, ...newMembers]);
+      setGroupSearch('');
+      setGroupResults([]);
+    } catch (error) {
+      console.error("Failed to import members:", error);
+    }
+  };
+
+
+
+  // ------------------- UI -------------------
   return (
     <div className="min-h-screen bg-gray-100">
       <Navbar />
@@ -171,7 +224,7 @@ const CreateGroupPage: React.FC = () => {
                 />
               </div>
 
-              {/* NEW: Group image upload */}
+              {/* Group image */}
               <div className="mb-4">
                 <label className="block text-gray-700 font-semibold mb-2">Group Image (optional)</label>
                 <div className="flex items-center gap-4">
@@ -243,6 +296,40 @@ const CreateGroupPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Add from group */}
+              <div className="mb-4">
+                <label htmlFor="groupSearch" className="block text-gray-700 font-semibold mb-2">Or add from existing group</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    id="groupSearch"
+                    value={groupSearch}
+                    onChange={(e) => setGroupSearch(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    placeholder="Enter group name to import members"
+                    autoComplete="off"
+                  />
+                  {isGroupSearching && (
+                    <div className="absolute right-3 top-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-gray-900"></div>
+                    </div>
+                  )}
+                  {groupResults.length > 0 && (
+                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-64 overflow-auto">
+                      {groupResults.map(g => (
+                        <li
+                          key={String(g.id)}
+                          onClick={() => handleImportGroupMembers(g)}
+                          className="p-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {g.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
               {/* Participants list */}
               <div className="mb-4">
                 <h3 className="text-lg font-semibold mb-2">Participants</h3>
@@ -270,7 +357,7 @@ const CreateGroupPage: React.FC = () => {
                         <button
                           onClick={() => handleDeleteParticipant(u.id)}
                           className="text-red-500 hover:text-red-700"
-                          disabled={String(u.id) === String(user?.id)} // ไม่ให้ลบ owner ตัวเองออก
+                          disabled={String(u.id) === String(user?.id)}
                           title={String(u.id) === String(user?.id) ? 'Owner cannot be removed' : 'Remove'}
                         >
                           <TrashIcon className="w-5 h-5" />
