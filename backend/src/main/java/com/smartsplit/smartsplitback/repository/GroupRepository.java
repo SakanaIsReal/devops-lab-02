@@ -18,5 +18,8 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
     @Query("select distinct g from GroupMember gm join gm.group g where gm.user.id = :userId")
     List<Group> findAllByMemberUserId(@Param("userId") Long userId);
 
+    @Query("select distinct g from GroupMember gm join gm.group g where gm.user.id = :userId and g.name like %:name%")
+    List<Group> findAllByMemberUserIdAndNameContainingIgnoreCase(@Param("userId") Long userId, @Param("name") String name);
+
 
 }
