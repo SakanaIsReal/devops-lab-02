@@ -77,8 +77,9 @@ export const getTransactions = async (): Promise<any[]> => {
     return response.data;
 };
 
-export const getGroups = async (): Promise<Group[]> => {
-    const response = await api.get('/api/groups/mine');
+export const getGroups = async (query?: string): Promise<Group[]> => {
+    const endpoint = query ? `/api/groups?q=${query}` : '/api/groups/mine';
+    const response = await api.get(endpoint);
     return response.data;
 };
 
