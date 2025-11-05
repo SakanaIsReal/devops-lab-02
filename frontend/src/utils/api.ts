@@ -147,20 +147,10 @@ export const getTransactions = async (): Promise<any[]> => {
     return response.data;
 };
 
-export const getGroups = async (): Promise<Group[]> => {
-    const response = await api.get('/groups/mine');
-    const groups = response.data;
-
-    // Resolve all cover images in parallel
-    await Promise.all(
-        groups.map(async (group: Group) => {
-            if (group.coverImageUrl) {
-                group.coverImageUrl = await resolveImageUrl(group.coverImageUrl);
-            }
-        })
-    );
-
-    return groups;
+export const getGroups = async (query?: string): Promise<Group[]> => {
+    const endpoint = query ? `/api/groups?q=${query}` : '/api/groups/mine';
+    const response = await api.get(endpoint);
+    return response.data;
 };
 
 
