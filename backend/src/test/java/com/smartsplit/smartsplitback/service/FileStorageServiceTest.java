@@ -1,202 +1,239 @@
 package com.smartsplit.smartsplitback.service;
 
+import com.smartsplit.smartsplitback.model.StoredFile;
+import com.smartsplit.smartsplitback.repository.StoredFileRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.net.URI;
-import java.nio.file.*;
-import java.util.List;
+import java.util.Base64;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FileStorageServiceTest {
 
-    @TempDir
-    Path tempRoot;
-
     FileStorageService service;
+    StoredFileRepository repo;
 
     @BeforeEach
     void setUp() {
-        service = new FileStorageService(tempRoot.toString());
+        repo = mock(StoredFileRepository.class);
+        when(repo.save(any())).thenAnswer(inv -> {
+            StoredFile s = inv.getArgument(0);
+            if (s.getId() == null) s.setId(123L);
+            return s;
+        });
+        service = new FileStorageService(repo);
     }
 
-    // ---------- Helpers ----------
-    private static MultipartFile mockFile(byte[] data, String originalFilename, boolean empty) throws IOException {
+    private static MultipartFile mockFile(byte[] bytes, String originalFilename, String contentType, boolean empty) throws Exception {
         MultipartFile f = mock(MultipartFile.class);
         when(f.isEmpty()).thenReturn(empty);
+        when(f.getBytes()).thenReturn(bytes);
         when(f.getOriginalFilename()).thenReturn(originalFilename);
-        when(f.getInputStream()).thenReturn(new ByteArrayInputStream(data));
+        when(f.getContentType()).thenReturn(contentType);
         return f;
     }
 
-    /** ใช้ Spring MockHttpServletRequest เพื่อให้ ServletUriComponentsBuilder สร้าง absolute URL ได้ */
-    private static HttpServletRequest mockReq(String uri) {
-        MockHttpServletRequest req = new MockHttpServletRequest();
-        req.setScheme("http");
-        req.setServerName("localhost");
-        req.setServerPort(80);
-        req.setRequestURI(uri); // เช่น "/api/upload"
-        return req;
+    private static HttpServletRequest req(String scheme, String host, int port, String uri) {
+        MockHttpServletRequest r = new MockHttpServletRequest();
+        r.setScheme(scheme);
+        r.setServerName(host);
+        r.setServerPort(port);
+        r.setRequestURI(uri);
+        return r;
     }
 
-    @SuppressWarnings("unused")
-    private static String lastSegment(String url) {
-        URI u = URI.create(url);
-        String path = u.getPath();
-        int slash = path.lastIndexOf('/');
-        return (slash >= 0) ? path.substring(slash + 1) : path;
-    }
-
-    // ===================== save(...) =====================
     @Nested
-    @DisplayName("save(file, folder, preferredFileName, req)")
     class SaveTests {
 
         @Test
-        @DisplayName("file == null → คืน null และไม่สร้างไฟล์")
-        void save_nullFile_returnsNull() {
-            String url = service.save(null, "any", "name", mockReq("/api/upload"));
+        void nullFile_returnsNull_and_noRepoCall() {
+            String url = service.save(null, "any", "name", req("http","localhost",80,"/upload"));
             assertThat(url).isNull();
+            verify(repo, never()).save(any());
         }
 
         @Test
-        @DisplayName("file.isEmpty() → คืน null และไม่สร้างไฟล์")
-        void save_emptyFile_returnsNull() throws IOException {
-            MultipartFile file = mockFile(new byte[0], "x.txt", true);
-            String url = service.save(file, "folder", "n", mockReq("/api/upload"));
+        void emptyFile_returnsNull_and_noRepoCall() throws Exception {
+            MultipartFile f = mockFile(new byte[0], "x.txt", "text/plain", true);
+            String url = service.save(f, "any", "name", req("http","localhost",80,"/upload"));
             assertThat(url).isNull();
+            verify(repo, never()).save(any());
         }
 
         @Test
-        @DisplayName("happy path: มี preferred + มีนามสกุลจาก original → เซฟไฟล์ + คืน URL absolute")
-        void save_withPreferred_andExtension() throws IOException {
-            MultipartFile file = mockFile("hello".getBytes(), "photo.jpg", false);
-            HttpServletRequest req = mockReq("/api/upload");
+        void save_withExplicitContentType_buildsDataUrl_andReturnsPublicFilesId() throws Exception {
+            byte[] bytes = "hello".getBytes();
+            MultipartFile f = mockFile(bytes, "photo.jpg", "image/jpeg", false);
 
-            String url = service.save(file, "my group", "receipt_1", req);
+            String url = service.save(f, "my group", "receipt_1", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/my_group/receipt_1.jpg");
+            assertThat(url).isEqualTo("http://localhost/files/123");
 
-            Path expected = tempRoot.resolve("my_group").resolve("receipt_1.jpg");
-            assertThat(expected).exists().hasFileName("receipt_1.jpg");
-            assertThat(Files.readAllBytes(expected)).isEqualTo("hello".getBytes());
+            ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
+            verify(repo).save(cap.capture());
+            StoredFile sf = cap.getValue();
+
+            assertThat(sf.getFolder()).isEqualTo("my group");
+            assertThat(sf.getOriginalName()).isEqualTo("receipt_1");
+            assertThat(sf.getContentType()).isEqualTo("image/jpeg");
+            assertThat(sf.getExt()).isEqualTo("jpg");
+            assertThat(sf.getSizeBytes()).isEqualTo((long) bytes.length);
+            assertThat(sf.getDataUrl()).startsWith("data:image/jpeg;base64,");
+            String b64 = sf.getDataUrl().substring(sf.getDataUrl().indexOf(',') + 1);
+            assertThat(Base64.getDecoder().decode(b64)).isEqualTo(bytes);
         }
 
         @Test
-        @DisplayName("ไม่มี preferred → ใช้ UUID + ต่อสกุล → URL absolute")
-        void save_withoutPreferred_usesUUID() throws IOException {
-            MultipartFile file = mockFile("data".getBytes(), "doc.pdf", false);
+        void save_withoutContentType_derivesFromExtension_caseInsensitive() throws Exception {
+            byte[] bytes = "x".getBytes();
+            MultipartFile f = mockFile(bytes, "PIC.PNG", null, false);
 
-            String url = service.save(file, "docs", null, mockReq("/api/upload"));
+            String url = service.save(f, "img", "hero", req("http","localhost",80,"/upload"));
 
-            assertThat(url).startsWith("http://localhost/files/docs/");
-            assertThat(url).endsWith(".pdf");
+            assertThat(url).isEqualTo("http://localhost/files/123");
 
-            Path dir = tempRoot.resolve("docs");
-            assertThat(dir).exists().isDirectory();
-            try (var stream = Files.list(dir)) {
-                List<Path> all = stream.toList();
-                assertThat(all).hasSize(1);
-                assertThat(all.get(0).getFileName().toString()).endsWith(".pdf");
-            }
+            ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
+            verify(repo).save(cap.capture());
+            StoredFile sf = cap.getValue();
+            assertThat(sf.getContentType()).isEqualTo("image/png");
+            assertThat(sf.getExt()).isEqualTo("png");
+            assertThat(sf.getDataUrl()).startsWith("data:image/png;base64,");
         }
 
         @Test
-        @DisplayName("originalFilename = null → ไม่มีสกุลไฟล์ → ใช้ preferred ตรง ๆ")
-        void save_originalNull_extensionBlank() throws IOException {
-            MultipartFile file = mockFile("x".getBytes(), null, false);
+        void save_noOriginalFilename_andNoContentType_usesOctetStream_andNoExt() throws Exception {
+            byte[] bytes = "bin".getBytes();
+            MultipartFile f = mockFile(bytes, null, null, false);
 
-            String url = service.save(file, "bag", "ticket123", mockReq("/api/upload"));
+            String url = service.save(f, "misc-folder", "blob", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/bag/ticket123");
-            assertThat(tempRoot.resolve("bag").resolve("ticket123")).exists();
+            assertThat(url).isEqualTo("http://localhost/files/123");
+
+            ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
+            verify(repo).save(cap.capture());
+            StoredFile sf = cap.getValue();
+            assertThat(sf.getOriginalName()).isEqualTo("blob");
+            assertThat(sf.getExt()).isNull();
+            assertThat(sf.getContentType()).isEqualTo("application/octet-stream");
+            assertThat(sf.getDataUrl()).startsWith("data:application/octet-stream;base64,");
         }
 
         @Test
-        @DisplayName("sanitize: โฟลเดอร์/ชื่อไฟล์ที่มีอักขระแปลก → แทนด้วย '_' (จุดยังคงอยู่ได้)")
-        void save_sanitize_folder_and_name() throws IOException {
-            MultipartFile file = mockFile("z".getBytes(), "photo-1.png", false);
+        void save_preferredBlank_usesOriginalFilename() throws Exception {
+            byte[] bytes = "d".getBytes();
+            MultipartFile f = mockFile(bytes, "doc.PDF", null, false);
 
-            String url = service.save(file, "A B/../C", "my file", mockReq("/api/u"));
+            String url = service.save(f, "docs", "   ", req("http","localhost",80,"/upload"));
 
-            // จุด (.) ได้รับอนุญาต → คาดว่าเป็น A_B_.._C
-            assertThat(url).isEqualTo("http://localhost/files/A_B_.._C/my_file.png");
+            assertThat(url).isEqualTo("http://localhost/files/123");
 
-            Path expected = tempRoot.resolve("A_B_.._C").resolve("my_file.png");
-            assertThat(expected).exists();
+            ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
+            verify(repo).save(cap.capture());
+            StoredFile sf = cap.getValue();
+            assertThat(sf.getOriginalName()).isEqualTo("doc.PDF");
+            assertThat(sf.getExt()).isEqualTo("pdf");
+            assertThat(sf.getContentType()).isEqualTo("application/pdf");
         }
 
         @Test
-        @DisplayName("บันทึกทับ (REPLACE_EXISTING) → เขียนทับไฟล์เดิมได้")
-        void save_overwrite_existing() throws IOException {
-            MultipartFile f1 = mockFile("v1".getBytes(), "p.jpg", false);
-            MultipartFile f2 = mockFile("v2".getBytes(), "p.jpg", false);
-            HttpServletRequest req = mockReq("/api/u");
+        void save_folderNullOrBlank_fallsBackTo_misc() throws Exception {
+            MultipartFile a = mockFile("a".getBytes(), "a.txt", "text/plain", false);
+            MultipartFile b = mockFile("b".getBytes(), "b.txt", "text/plain", false);
+            MultipartFile c = mockFile("c".getBytes(), "c.txt", "text/plain", false);
 
-            String url1 = service.save(f1, "imgs", "same", req);
-            assertThat(url1).isEqualTo("http://localhost/files/imgs/same.jpg");
+            service.save(a, null, "f1", req("http","localhost",80,"/u"));
+            service.save(b, "", "f2", req("http","localhost",80,"/u"));
+            service.save(c, "   ", "f3", req("http","localhost",80,"/u"));
 
-            String url2 = service.save(f2, "imgs", "same", req);
-            assertThat(url2).isEqualTo(url1);
+            ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
+            verify(repo, times(3)).save(cap.capture());
+            assertThat(cap.getAllValues().get(0).getFolder()).isEqualTo("misc");
+            assertThat(cap.getAllValues().get(1).getFolder()).isEqualTo("misc");
+            assertThat(cap.getAllValues().get(2).getFolder()).isEqualTo("misc");
+        }
 
-            Path filePath = tempRoot.resolve("imgs").resolve("same.jpg");
-            assertThat(Files.readAllBytes(filePath)).isEqualTo("v2".getBytes());
+        @Test
+        void save_httpsCustomPort_reflectedInPublicUrl() throws Exception {
+            MultipartFile f = mockFile("s".getBytes(), "screen.PNG", null, false);
+
+            String url = service.save(f, "shots", "sc1", req("https","cdn.example.com",4443,"/upload"));
+
+            assertThat(url).isEqualTo("https://cdn.example.com:4443/files/123");
+        }
+
+        @Test
+        void save_httpDefaultPort_omitsPortInUrl() throws Exception {
+            MultipartFile f = mockFile("x".getBytes(), "a.png", null, false);
+
+            String url = service.save(f, "imgs", "a", req("http","localhost",80,"/upload"));
+
+            assertThat(url).isEqualTo("http://localhost/files/123");
+        }
+
+        @Test
+        void save_httpsDefaultPort_omitsPortInUrl() throws Exception {
+            MultipartFile f = mockFile("x".getBytes(), "a.png", null, false);
+
+            String url = service.save(f, "imgs", "a", req("https","example.com",443,"/upload"));
+
+            assertThat(url).isEqualTo("https://example.com/files/123");
         }
     }
 
-    // ===================== deleteByUrl(...) =====================
     @Nested
-    @DisplayName("deleteByUrl(publicUrl)")
     class DeleteTests {
 
         @Test
-        @DisplayName("ลบสำเร็จ: มีไฟล์อยู่จริง → true และไฟล์หายไป")
-        void delete_existing_true() throws IOException {
-            MultipartFile file = mockFile("content".getBytes(), "note.txt", false);
-            String url = service.save(file, "bin", "one", mockReq("/api/u"));
+        void delete_dataUrlLegacy_returnsTrue() {
+            boolean ok = service.deleteByUrl("data:image/png;base64,AAAA");
+            assertThat(ok).isTrue();
+            verify(repo, never()).deleteById(any());
+        }
 
-            Path p = tempRoot.resolve("bin").resolve("one.txt");
-            assertThat(p).exists();
+        @Test
+        void delete_existingId_true_andDeletes() {
+            when(repo.existsById(999L)).thenReturn(true);
 
-            boolean ok = service.deleteByUrl(url);
+            boolean ok = service.deleteByUrl("http://host/files/999");
 
             assertThat(ok).isTrue();
-            assertThat(p).doesNotExist();
+            verify(repo).deleteById(999L);
         }
 
         @Test
-        @DisplayName("ไม่มีไฟล์ → false")
-        void delete_nonExisting_false() {
-            boolean ok = service.deleteByUrl("http://localhost/files/ghost/nope.bin");
+        void delete_nonExistingId_false() {
+            when(repo.existsById(555L)).thenReturn(false);
+
+            boolean ok = service.deleteByUrl("http://x/files/555");
+
             assertThat(ok).isFalse();
+            verify(repo, never()).deleteById(any());
         }
 
         @Test
-        @DisplayName("URL ไม่ใช่ /files/... → false (ไม่พยายามลบ)")
         void delete_malformedUrl_false() {
-            boolean ok = service.deleteByUrl("http://localhost/public/abc.txt");
-            assertThat(ok).isFalse();
-        }
-
-        @Test
-        @DisplayName("กัน path traversal: /files/../../etc/passwd → false")
-        void delete_pathTraversal_blocked() {
-            boolean ok = service.deleteByUrl("http://localhost/files/../../etc/passwd");
-            assertThat(ok).isFalse();
-        }
-
-        @Test
-        @DisplayName("null/ว่าง → false")
-        void delete_nullOrBlank_false() {
+            assertThat(service.deleteByUrl("http://localhost/public/abc.txt")).isFalse();
+            assertThat(service.deleteByUrl("http://localhost/files/abc")).isFalse();
+            assertThat(service.deleteByUrl("http://localhost/files/../../etc/passwd")).isFalse();
             assertThat(service.deleteByUrl(null)).isFalse();
             assertThat(service.deleteByUrl("  ")).isFalse();
+        }
+
+        @Test
+        void delete_urlWithQueryOrExtraSegments_parsesIdOnly() {
+            when(repo.existsById(42L)).thenReturn(true);
+
+            boolean ok1 = service.deleteByUrl("https://ex/files/42?x=1&y=2");
+            boolean ok2 = service.deleteByUrl("https://ex/files/42/anything");
+
+            assertThat(ok1).isTrue();
+            assertThat(ok2).isTrue();
+            verify(repo, times(2)).deleteById(42L);
         }
     }
 }

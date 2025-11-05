@@ -28,7 +28,7 @@ import { BillDetailPage } from "./pages/BillDetailPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
 
-import { ConfirmPaymentPage } from "./pages/ConfirmPaymentPage"
+import { ConfirmPaymentPage } from "./pages/ConfirmPaymentPage";
 function App() {
   return (
     // 1. Wrap the entire app with the Router component to enable routing

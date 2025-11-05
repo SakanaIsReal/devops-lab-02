@@ -1,19 +1,74 @@
 import axios from 'axios';
 import { Balance, Group, PaymentDetails, Settlement, Transaction, User, UserUpdateForm, Payment } from '../types';
 
-export const getBalances = async (): Promise<Balance[]> => {
-    const response = await api.get('/api/me/balances');
-    return response.data;
-};
-const API_BASE_URL = 'http://localhost:8081';
+
+const API_BASE_URL = '/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
 });
 
+// In-memory cache for loaded images (base64 data URLs)
+const imageCache = new Map<string, string>();
+
+/**
+ * Resolves image URLs to base64 data URLs
+ * - If URL is already a data URL (starts with 'data:'), returns it as-is
+ * - If URL is a reference URL (e.g., /files/{id}), fetches and caches the base64
+ * - Returns empty string if URL is undefined or fetch fails
+ */
+async function resolveImageUrl(url: string | undefined): Promise<string> {
+    if (!url || url.trim() === '') return '';
+
+    // Already a data URL, return as-is
+    if (url.startsWith('data:')) return url;
+
+    // Check cache first
+    if (imageCache.has(url)) {
+        return imageCache.get(url)!;
+    }
+
+    try {
+        // Fetch the base64 data from the backend
+        const response = await api.get(url.replace(API_BASE_URL, ''), {
+            responseType: 'text'
+        });
+
+        const dataUrl = response.data;
+
+        // Validate it's a proper data URL
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+            imageCache.set(url, dataUrl);
+            return dataUrl;
+        }
+
+        console.warn('Invalid data URL received from:', url);
+        return '';
+    } catch (error) {
+        console.error('Failed to load image from:', url, error);
+        return '';
+    }
+}
+
+export const getBalances = async (): Promise<Balance[]> => {
+    const response = await api.get('/me/balances');
+    const balances = response.data;
+
+    // Resolve all counterparty avatar images in parallel
+    await Promise.all(
+        balances.map(async (balance: Balance) => {
+            if (balance.counterpartyAvatarUrl) {
+                balance.counterpartyAvatarUrl = await resolveImageUrl(balance.counterpartyAvatarUrl);
+            }
+        })
+    );
+
+    return balances;
+};
+
 // utils/api.ts
 export const getPaymentDetail = async (billId: string, userId: string) => {
-  const response = await api.get(`/api/payments/${billId}/${userId}`);
+  const response = await api.get(`/payments/${billId}/${userId}`);
   return response.data;
 };
 
@@ -33,10 +88,15 @@ api.interceptors.request.use(config => {
 
 // FIX: Correct response handling
 export const loginApi = async (email: string, password: string): Promise<{ user: User; token: string }> => {
-    const response = await api.post('/api/auth/login', { email, password });
+    const response = await api.post('/auth/login', { email, password });
 
     // Map API response to match your expected structure
     const apiResponse = response.data;
+
+    // Resolve user avatar and QR code images
+    const avatarUrl = await resolveImageUrl(apiResponse.avatarUrl);
+    const qrCodeUrl = await resolveImageUrl(apiResponse.qrCodeUrl);
+
     return {
         token: apiResponse.accessToken, // Map accessToken to token
         user: {
@@ -44,8 +104,8 @@ export const loginApi = async (email: string, password: string): Promise<{ user:
             email: apiResponse.email,
             name: apiResponse.userName,
             phone: apiResponse.phone,
-            imageUrl: apiResponse.avatarUrl,
-            qrCodeUrl: apiResponse.qrCodeUrl
+            imageUrl: avatarUrl,
+            qrCodeUrl: qrCodeUrl
             // Add other properties as needed
         }
     };
@@ -58,7 +118,7 @@ export const signUpApi = async (
     password: string,
     phone?: string
 ): Promise<User> => {
-    const response = await api.post('/api/auth/register', {
+    const response = await api.post('/auth/register', {
         userName,
         email,
         password,
@@ -67,13 +127,23 @@ export const signUpApi = async (
     return response.data;
 };
 export const getUserInformation = async (userId: string | number,): Promise<any> => {
-    const response = await api.get(`/api/users/${userId}`);
-    return response.data;
+    const response = await api.get(`/users/${userId}`);
+    const userData = response.data;
+
+    // Resolve avatar and QR code images
+    if (userData.avatarUrl) {
+        userData.avatarUrl = await resolveImageUrl(userData.avatarUrl);
+    }
+    if (userData.qrCodeUrl) {
+        userData.qrCodeUrl = await resolveImageUrl(userData.qrCodeUrl);
+    }
+
+    return userData;
 };
 
 
 export const getTransactions = async (): Promise<any[]> => {
-    const response = await api.get('/api/transactions');
+    const response = await api.get('/transactions');
     return response.data;
 };
 
@@ -85,23 +155,23 @@ export const getGroups = async (query?: string): Promise<Group[]> => {
 
 
 export const searchUsers = async (query: string): Promise<any[]> => {
-    const response = await api.get(`/api/users/search?q=${query}`);
+    const response = await api.get(`/users/search?q=${query}`);
     return response.data;
 };
 
 
 
 export const getBillDetails = async (billId: string): Promise<any> => {
-    const response = await api.get(`/api/expenses/${billId}`);
+    const response = await api.get(`/expenses/${billId}`);
     return response.data;
 };
 
 export const getExpenseSettlements = async (expenseId: string): Promise<any[]> => {
-    const response = await api.get(`/api/expenses/${expenseId}/settlement`);
+    const response = await api.get(`/expenses/${expenseId}/settlement`);
     return response.data;
 };
 export const getExpenseSettlementsUserID = async (expenseId: string, userId : String): Promise<any[]> => {
-    const response = await api.get(`/api/expenses/${expenseId}/settlement/${userId}`);
+    const response = await api.get(`/expenses/${expenseId}/settlement/${userId}`);
     if (Array.isArray(response.data)) {
         return response.data;
     }
@@ -110,17 +180,24 @@ export const getExpenseSettlementsUserID = async (expenseId: string, userId : St
 // Update your ../utils/api file
 
 export const getGroupDetails = async (groupId: string): Promise<Group> => {
-    const response = await api.get(`/api/groups/${groupId}`);
-    return response.data;
+    const response = await api.get(`/groups/${groupId}`);
+    const group = response.data;
+
+    // Resolve cover image URL to base64
+    if (group.coverImageUrl) {
+        group.coverImageUrl = await resolveImageUrl(group.coverImageUrl);
+    }
+
+    return group;
 };
 
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
-  const response = await api.get(`/api/expenses/group/${groupId}`);
+  const response = await api.get(`/expenses/group/${groupId}`);
   const expenses = response.data;
 
   const transactions = await Promise.all(
     expenses.map(async (expense: any) => {
-      const user_response = await api.get(`/api/users/${expense.payerUserId}`);
+      const user_response = await api.get(`/users/${expense.payerUserId}`);
       const username = user_response.data.userName;
 
       return {
@@ -146,7 +223,7 @@ export const createExpense = async (expenseData: {
     title: string;
     // Add other necessary fields
 }): Promise<any> => {
-    const response = await api.post('/api/expenses', expenseData);
+    const response = await api.post('/expenses', expenseData);
     return response.data;
 };
 export const editUserInformationAcc = async (
@@ -172,7 +249,7 @@ export const editUserInformationAcc = async (
         if (formData.qr instanceof File) {
             data.append("qr", formData.qr);
         }
-        const response = await api.put(`/api/users/${userId}`, data);
+        const response = await api.put(`/users/${userId}`, data);
         return response.data;
     } else {
         const updatePayload: any = {};
@@ -190,7 +267,7 @@ export const editUserInformationAcc = async (
         }
 
         // ส่ง JSON Request
-        const response = await api.put(`/api/users/${userId}`, updatePayload);
+        const response = await api.put(`/users/${userId}`, updatePayload);
         return response.data;
     }
 }
@@ -206,7 +283,7 @@ export const createExpenseApi = async (expenseData: {
     title: string;
     participants?: number[];
 }): Promise<any> => {
-    const response = await api.post("/api/expenses", expenseData);
+    const response = await api.post("/expenses", expenseData);
     return response.data;
 };
 
@@ -216,14 +293,18 @@ export const createExpenseApi = async (expenseData: {
 export const createExpenseItem = async (
     expenseId: number,
     name: string,
-    amount: string
+    amount: string,
+    currency?: string
 ) => {
     const formData = new URLSearchParams();
     formData.append("name", name);
     formData.append("amount", amount);
+    if (currency) {
+        formData.append("currency", currency);
+    }
 
     const res = await api.post(
-        `/api/expenses/${expenseId}/items`,
+        `/expenses/${expenseId}/items`,
         formData,
         {
             headers: {
@@ -256,7 +337,7 @@ export const createExpenseItemShare = async (
     }
 
     const res = await api.post(
-        `/api/expenses/${expenseId}/items/${itemId}/shares`,
+        `/expenses/${expenseId}/items/${itemId}/shares`,
         formData,
         {
             headers: {
@@ -268,7 +349,13 @@ export const createExpenseItemShare = async (
 };
 
 export const getGroupById = async (groupId: number | string) => {
-  const { data } = await api.get(`/api/groups/${groupId}`);
+  const { data } = await api.get(`/groups/${groupId}`);
+
+  // Resolve cover image URL to base64
+  if (data.coverImageUrl) {
+    data.coverImageUrl = await resolveImageUrl(data.coverImageUrl);
+  }
+
   return data; // คาดว่า { id, name, ownerUserId, members: [...], coverImageUrl, ... }
 };
 
@@ -299,7 +386,7 @@ export const updateGroup = async (
   if (params.coverFile) {
     fd.append('cover', params.coverFile);
   }
-  const { data } = await api.put(`/api/groups/${groupId}`, fd);
+  const { data } = await api.put(`/groups/${groupId}`, fd);
   return data;
 };
 
@@ -347,7 +434,7 @@ export const createGroup = async (
   }
 
   // ใช้ path ที่มี / ข้างหน้าเสมอ
-  const res = await api.post("/api/groups", fd);
+  const res = await api.post("/groups", fd);
   return res.data;
 };
 
@@ -380,7 +467,7 @@ const pickName = (u: any): string => {
 };
 
 export const getGroupMembers = async (groupId: number | string): Promise<User[]> => {
-  const { data: d } = await api.get(`/api/groups/${groupId}/members`);
+  const { data: d } = await api.get(`/groups/${groupId}/members`);
 
   const raw = Array.isArray(d) ? d
            : Array.isArray(d?.members) ? d.members
@@ -407,7 +494,7 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
 
 // เพิ่มสมาชิก 1 คน (ตามสเปค Swagger: body = { groupId, userId })
 export const addMember = async (groupId: number | string, userId: number | string) => {
-  return api.post(`/api/groups/${groupId}/members`, {
+  return api.post(`/groups/${groupId}/members`, {
     groupId: Number(groupId),
     userId: Number(userId),
   }, { headers: { 'Content-Type': 'application/json' }});
@@ -468,7 +555,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
 
   // 1) POST /api/users/batch  { ids: [...] }
   try {
-    const { data } = await api.post('/api/users/batch', { ids: uniq });
+    const { data } = await api.post('/users/batch', { ids: uniq });
     const arr = Array.isArray(data) ? data
       : Array.isArray(data?.users) ? data.users
       : Array.isArray(data?.items) ? data.items
@@ -483,7 +570,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
   // 2) GET /api/users?ids=1,2,3
   if (byId.size < uniq.length) {
     try {
-      const { data } = await api.get('/api/users', { params: { ids: uniq.join(',') } });
+      const { data } = await api.get('/users', { params: { ids: uniq.join(',') } });
       const arr = Array.isArray(data) ? data
         : Array.isArray(data?.users) ? data.users
         : Array.isArray(data?.items) ? data.items
@@ -501,7 +588,7 @@ export const fetchUserProfiles = async (ids: number[]) => {
     for (const id of uniq) {
       if (byId.has(id)) continue;
       try {
-        const { data } = await api.get(`/api/users/${id}`);
+        const { data } = await api.get(`/users/${id}`);
         byId.set(id, data);
       } catch (_) {}
     }
@@ -520,14 +607,14 @@ export const fetchUserProfiles = async (ids: number[]) => {
   });
   return out;
 };
-// utils/api.ts
+// utils.ts
 export const getBalanceSummary = async (): Promise<{ youOweTotal: number; youAreOwedTotal: number }> => {
-    const response = await api.get('/api/me/balances/summary');
+    const response = await api.get('/me/balances/summary');
     return response.data;
 };
 
 export const removeMember = async (groupId: number | string, userId: number | string) => {
-  return api.delete(`/api/groups/${groupId}/members/${userId}`);
+  return api.delete(`/groups/${groupId}/members/${userId}`);
 };
 
 export const removeMembers = async (groupId: number | string, userIds: Array<number | string>) => {
@@ -563,7 +650,7 @@ export const createBill = async (p: {
     throw new Error('Invalid payload: groupId/payerUserId/amount must be numbers');
   }
 
-  const { data } = await api.post('/api/expenses', body, {
+  const { data } = await api.post('/expenses', body, {
     headers: { 'Content-Type': 'application/json' },
   });
   return data; // ควรได้ { id, ... }
@@ -575,7 +662,7 @@ export const createBill = async (p: {
 
 // Get settlement details for a specific expense and user
 export const getSettlementDetails = async (expenseId: number, userId: number): Promise<Settlement> => {
-    const response = await api.get(`/api/expenses/${expenseId}/settlement/${userId}`);
+    const response = await api.get(`/expenses/${expenseId}/settlement/${userId}`);
     return response.data;
 };
 
@@ -593,7 +680,7 @@ export const submitPayment = async (
     formData.append('receipt', receiptFile); // Note: API expects 'recelpt' (typo in API)
     
     const response = await api.post(
-        `/api/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
+        `/expenses/${expenseId}/payments?fromUserId=${fromUserId}&amount=${amount}`,
         formData
     );
     return response.data;
@@ -611,22 +698,25 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
     // Then, get user information of the payer to populate payer name and QR code
     let payerName = `User ${payerId}`;
     let qrCodeUrl = '';
-    
+    let phone = '';
+
     try {
         const payerInfo = await getUserInformation(payerId.toString());
         payerName = payerInfo.name || payerInfo.userName || payerName;
         qrCodeUrl = payerInfo.qrCodeUrl || payerInfo.qrCode || '';
+        phone = payerInfo.phone || '';
     } catch (error) {
         console.error("Error fetching payer info:", error);
         // Use default values if user info fetch fails
-        qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
+        qrCodeUrl = `https:/.qrserver.com/v1/create-qr-code/?size=200x200&data=payment-${expenseId}-${userId}`;
     }
-    
+
     return {
         transactionId: expenseId,
         payerName: payerName,
         amountToPay: settlement.remaining, // Use the remaining amount
         qrCodeUrl: qrCodeUrl,
+        phone: phone,
         // Include settlement details for reference
         expenseId: settlement.expenseId,
         userId: settlement.userId,
@@ -638,14 +728,14 @@ export const getPaymentDetails = async (expenseId: string, userId: string): Prom
 };
 
 export const deleteGroup = async (groupId: string | number): Promise<any> => {
-    const response = await api.delete(`/api/groups/${groupId}`);
+    const response = await api.delete(`/groups/${groupId}`);
     return response.data;
 };
 
 
 // Add this function to your api.ts file
 export const getExpensePayments = async (expenseId: number): Promise<Payment[]> => {
-  const response = await api.get(`/api/expenses/${expenseId}/payments`);
+  const response = await api.get(`/expenses/${expenseId}/payments`);
   return response.data;
 };
 
@@ -664,11 +754,11 @@ export const hasPendingPayment = async (expenseId: number, userId: number): Prom
 };
 
 export const getPayment = async (expenseId: number, paymentId: number): Promise<Payment> => {
-    const response = await api.get(`/api/expenses/${expenseId}/payments/${paymentId}`);
+    const response = await api.get(`/expenses/${expenseId}/payments/${paymentId}`);
     return response.data;
 };
 
 export const updatePaymentStatus = async (expenseId: number, paymentId: number, status: 'VERIFIED' | 'REJECTED'): Promise<Payment> => {
-    const response = await api.put(`/api/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
+    const response = await api.put(`/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
     return response.data;
 };

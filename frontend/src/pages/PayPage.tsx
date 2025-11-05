@@ -218,8 +218,22 @@ const PayPage: React.FC = () => {
           </div>
 
           {/* QR Code */}
-          {paymentDetails.qrCodeUrl && (
-            <img src={paymentDetails.qrCodeUrl} alt="QR Code" className="mx-auto w-48 h-48 mb-4 border rounded-lg" />
+          {paymentDetails.phone ? (
+            <img
+              src={`https://promptpay.io/${paymentDetails.phone}.png`}
+              alt="PromptPay QR Code"
+              className="mx-auto w-48 h-48 mb-4 border rounded-lg"
+            />
+          ) : paymentDetails.qrCodeUrl ? (
+            <img
+              src={paymentDetails.qrCodeUrl}
+              alt="QR Code"
+              className="mx-auto w-48 h-48 mb-4 border rounded-lg"
+            />
+          ) : (
+            <div className="mx-auto w-48 h-48 mb-4 border rounded-lg flex items-center justify-center bg-gray-100">
+              <p className="text-gray-500 text-sm text-center">No QR Code Available</p>
+            </div>
           )}
           
           {/* Amount Input */}

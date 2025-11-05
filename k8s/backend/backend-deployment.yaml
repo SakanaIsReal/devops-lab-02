@@ -13,8 +13,22 @@ spec:
       labels:
         app: backend
     spec:
+      initContainers:
+      - name: wait-for-mysql
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MySQL to be ready..."
+          until nc -z mysql.smartsplit.svc.cluster.local 3306; do
+            echo "MySQL is unavailable - sleeping"
+            sleep 2
+          done
+          echo "MySQL is up - proceeding"
       containers:
       - name: backend
+        # Image tag is dynamically set during CI/CD deployment to git SHA
+        # For local development, use: backend:latest (without registry prefix)
         image: sakanaisreal/smartsplit-backend:latest
         imagePullPolicy: Always
         ports:
@@ -26,7 +40,7 @@ spec:
               name: app-config
               key: SPRING_PROFILES_ACTIVE
         - name: SPRING_DATASOURCE_URL
-          value: "jdbc:mysql://mysql:3306/smartsplit-db"
+          value: "jdbc:mysql://mysql.smartsplit.svc.cluster.local:3306/smartsplit-db?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC"
         - name: SPRING_DATASOURCE_USERNAME
           value: "root"
         - name: SPRING_DATASOURCE_PASSWORD
@@ -64,6 +78,20 @@ spec:
           requests:
             memory: "512Mi"
             cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 5
+          failureThreshold: 3
       volumes:
       - name: uploads-storage
         persistentVolumeClaim:
@@ -73,6 +101,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: backend
+  namespace: smartsplit
 spec:
   selector:
     app: backend

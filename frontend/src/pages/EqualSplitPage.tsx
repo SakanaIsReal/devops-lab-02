@@ -19,7 +19,10 @@ export default function EqualSplitPage() {
     const [expenseName, setExpenseName] = useState("");
     const [amount, setAmount] = useState("");
     const [pickerOpen, setPickerOpen] = useState(false);
+    const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [currency, setCurrency] = useState("THB");
+    const [customCurrency, setCustomCurrency] = useState("");
     const navigate = useNavigate();
     const { user } = useAuth(); // ใช้เป็น payerUserId
 
@@ -134,6 +137,23 @@ export default function EqualSplitPage() {
         (p.email ? p.email.split("@")[0] : "") ||
         `User #${p.id}`;
 
+    // Helper function to get currency symbol
+    const getCurrencySymbol = (curr: string): string => {
+        switch (curr.toUpperCase()) {
+            case "THB": return "฿";
+            case "USD": return "$";
+            case "JPY": return "¥";
+            default: return curr.toUpperCase();
+        }
+    };
+
+    // Get the active currency (custom or selected)
+    const getActiveCurrency = (): string => {
+        return currency === "CUSTOM" && customCurrency.trim() !== ""
+            ? customCurrency.toUpperCase().slice(0, 3)
+            : currency;
+    };
+
     const handleSubmit = async () => {
         if (!groupIdNum) { alert("ไม่พบ groupId"); return; }
 
@@ -165,7 +185,8 @@ export default function EqualSplitPage() {
             // 2. สร้าง Expense Item
             const ItemName = expense.title;
             const ItemAmount = expense.amount;
-            const createdItem = await createExpenseItem(expenseId, ItemName, ItemAmount);
+            const itemCurrency = getActiveCurrency();
+            const createdItem = await createExpenseItem(expenseId, ItemName, ItemAmount, itemCurrency);
             const itemId = createdItem.id;
 
             // 3. คำนวณส่วนแบ่งต่อคน (รวมคนจ่ายด้วย)
@@ -272,6 +293,69 @@ export default function EqualSplitPage() {
                     placeholder="Enter expense total"
                     className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+
+                {/* Currency Selector */}
+                <label className="block text-gray-700 font-medium mb-2">
+                    Currency
+                </label>
+                <div className="mb-4">
+                    <div className="relative w-full">
+                        <button
+                            type="button"
+                            onClick={() => setCurrencyPickerOpen(!currencyPickerOpen)}
+                            className="w-full flex justify-between items-center cursor-pointer p-3 border-none rounded-xl bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <span className="text-gray-700">
+                                {currency === "CUSTOM" && customCurrency.trim() !== ""
+                                    ? `${customCurrency.toUpperCase()}`
+                                    : currency === "CUSTOM"
+                                    ? "Custom"
+                                    : `${currency} (${getCurrencySymbol(currency)})`}
+                            </span>
+                            <span className="text-gray-500">{currencyPickerOpen ? "▲" : "▼"}</span>
+                        </button>
+                        {currencyPickerOpen && (
+                            <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2">
+                                {["THB", "USD", "JPY", "CUSTOM"].map((curr) => (
+                                    <label
+                                        key={curr}
+                                        className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-blue-50 cursor-pointer"
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="currency"
+                                            checked={currency === curr}
+                                            onChange={() => {
+                                                setCurrency(curr);
+                                                if (curr !== "CUSTOM") {
+                                                    setCustomCurrency("");
+                                                }
+                                                setCurrencyPickerOpen(false);
+                                            }}
+                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                        />
+                                        <span className="text-gray-700 text-sm">
+                                            {curr === "CUSTOM"
+                                                ? "Custom"
+                                                : `${curr} (${getCurrencySymbol(curr)})`}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {/* Custom Currency Input */}
+                    {currency === "CUSTOM" && (
+                        <input
+                            type="text"
+                            value={customCurrency}
+                            onChange={(e) => setCustomCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                            placeholder="e.g., EUR, GBP"
+                            maxLength={3}
+                            className="w-full p-3 mt-2 border-none rounded-xl bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    )}
+                </div>
 
                 {/* Select Participants */}
                 <div className="mb-6">

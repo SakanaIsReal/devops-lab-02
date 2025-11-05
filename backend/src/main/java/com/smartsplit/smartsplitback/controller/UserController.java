@@ -92,6 +92,8 @@ public class UserController {
         u.setEmail(in.email() == null ? null : in.email().trim().toLowerCase());
         u.setUserName(in.userName());
         u.setPhone(in.phone());
+        u.setFirstName(in.firstName());
+        u.setLastName(in.lastName());
         u.setPasswordHash(svc.encodePassword(in.password()));
         if (in.role() != null) u.setRole(Role.fromCode(in.role())); else u.setRole(Role.USER);
 
@@ -129,6 +131,8 @@ public class UserController {
         u.setPhone(in.phone());
         u.setAvatarUrl(in.avatarUrl());
         u.setQrCodeUrl(in.qrCodeUrl());
+        u.setFirstName(in.firstName());
+        u.setLastName(in.lastName());
         u.setPasswordHash(svc.encodePassword(in.password()));
         if (in.role() != null) u.setRole(Role.fromCode(in.role())); else u.setRole(Role.USER);
 
@@ -148,18 +152,34 @@ public class UserController {
         var u = svc.get(id);
         if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
 
-        if (in.email()     != null) u.setEmail(in.email());
+        if (in.email()     != null) u.setEmail(in.email().trim().toLowerCase());
         if (in.userName()  != null) u.setUserName(in.userName());
         if (in.phone()     != null) u.setPhone(in.phone());
         if (in.avatarUrl() != null) u.setAvatarUrl(in.avatarUrl());
         if (in.qrCodeUrl() != null) u.setQrCodeUrl(in.qrCodeUrl());
+        if (in.firstName() != null) u.setFirstName(in.firstName());
+        if (in.lastName()  != null) u.setLastName(in.lastName());
 
-        if (perm.isAdmin() && in.roleCode() != null) {
+
+        if (in.roleCode() != null) {
+            Long actorId = perm.currentUserId();
+            if (!perm.isAdmin()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only admin can change role");
+            }
+            if (actorId != null && actorId.equals(id)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin cannot change own role");
+            }
             u.setRole(Role.fromCode(in.roleCode()));
         }
 
-        return toDto(svc.update(u));
+        try {
+            return toDto(svc.update(u));
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            // กรณี email ซ้ำ (unique index)
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
+        }
     }
+
 
     @Operation(summary = "Update user (multipart)")
     @PreAuthorize("@perm.isAdmin() || @perm.isSelf(#id)")
@@ -186,10 +206,20 @@ public class UserController {
         var u = svc.get(id);
         if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
 
-        if (in.email()    != null) u.setEmail(in.email());
+        if (in.email()    != null) u.setEmail(in.email().trim().toLowerCase());
         if (in.userName() != null) u.setUserName(in.userName());
         if (in.phone()    != null) u.setPhone(in.phone());
-        if (perm.isAdmin() && in.roleCode() != null) {
+        if (in.firstName() != null) u.setFirstName(in.firstName());
+        if (in.lastName()  != null) u.setLastName(in.lastName());
+        // เปลี่ยน role: admin เท่านั้น และห้ามเปลี่ยนสิทธิของตัวเอง
+        if (in.roleCode() != null) {
+            Long actorId = perm.currentUserId();
+            if (!perm.isAdmin()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only admin can change role");
+            }
+            if (actorId != null && actorId.equals(id)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin cannot change own role");
+            }
             u.setRole(Role.fromCode(in.roleCode()));
         }
 
@@ -204,8 +234,15 @@ public class UserController {
             u.setQrCodeUrl(url);
         }
 
-        return toDto(svc.update(u));
+        try {
+            return toDto(svc.update(u));
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
+        }
     }
+
+
 
     @PreAuthorize("@perm.isAdmin() || @perm.isSelf(#id)")
     @DeleteMapping("/{id}")
@@ -258,9 +295,13 @@ public class UserController {
                 u.getPhone(),
                 u.getAvatarUrl(),
                 u.getQrCodeUrl(),
-                u.getRole() == null ? null : u.getRole().code()
+                (u.getRole() == null) ? null : Integer.valueOf(u.getRole().code()),
+                u.getFirstName(),
+                u.getLastName()
         );
     }
+
+
 
     private static UserPublicDto toPublicDto(User u) {
         return new UserPublicDto(

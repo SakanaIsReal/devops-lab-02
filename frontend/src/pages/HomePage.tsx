@@ -7,13 +7,21 @@ import BalanceList from '../components/BalanceList';
 export const HomePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col p"> 
-      <Navbar /> 
+      <div className="navbar">
+        <Navbar />
+      </div>
       
         <div className='pb-16'>
-          <BalanceSummary />
-          <BalanceList />
+          <div className="balance-summary">
+            <BalanceSummary />
+          </div>
+          <div className="balance-list">
+            <BalanceList />
+          </div>
         </div>
-      <BottomNav activeTab={'home'}/>
+      <div className="bottom-nav">
+        <BottomNav activeTab={'home'}/>
+      </div>
     </div>
   );
 };

@@ -19,6 +19,8 @@ type ExpenseItem = {
     sharedWith: number[];
     splitMethod: SplitMethod;
     percentages: { [personId: number]: number };
+    currency: string;
+    customCurrency: string;
 };
 
 type SplitMethod = "equal" | "percentage";
@@ -33,6 +35,8 @@ export default function ManualSplitPage() {
     const location = useLocation();
     const { user } = useAuth();
     const [participants, setParticipants] = useState<Participant[]>([]);
+    const [openCurrencyPicker, setOpenCurrencyPicker] = useState<number | null>(null);
+    const [openParticipantPicker, setOpenParticipantPicker] = useState<number | null>(null);
 
     const groupId = location.state?.groupId;
     const [items, setItems] = useState<ExpenseItem[]>([
@@ -42,9 +46,38 @@ export default function ManualSplitPage() {
             sharedWith: [],
             splitMethod: "equal",
             percentages: {},
+            currency: "THB",
+            customCurrency: "",
         },
     ]);
     const navigate = useNavigate();
+
+    // Helper function to get currency symbol
+    const getCurrencySymbol = (currency: string): string => {
+        switch (currency.toUpperCase()) {
+            case "THB": return "฿";
+            case "USD": return "$";
+            case "JPY": return "¥";
+            default: return currency.toUpperCase();
+        }
+    };
+
+    // Get the active currency for an item (custom or selected)
+    const getItemCurrency = (item: ExpenseItem): string => {
+        return item.currency === "CUSTOM" && item.customCurrency.trim() !== ""
+            ? item.customCurrency.toUpperCase().slice(0, 3)
+            : item.currency;
+    };
+
+    // Handle currency dropdown change for an item
+    const handleItemCurrencyChange = (itemIndex: number, value: string) => {
+        const newItems = [...items];
+        newItems[itemIndex].currency = value;
+        if (value !== "CUSTOM") {
+            newItems[itemIndex].customCurrency = "";
+        }
+        setItems(newItems);
+    };
 
     useEffect(() => {
         const fetchParticipants = async () => {
@@ -118,7 +151,8 @@ export default function ManualSplitPage() {
                 try {
                     console.log("Processing item:", item);
 
-                    const createdItem = await createExpenseItem(expenseId, item.name, item.amount);
+                    const itemCurrency = getItemCurrency(item);
+                    const createdItem = await createExpenseItem(expenseId, item.name, item.amount, itemCurrency);
                     console.log("Created Item:", createdItem);
 
                     const itemId = createdItem.id;
@@ -179,6 +213,8 @@ export default function ManualSplitPage() {
                 sharedWith: [],
                 splitMethod: "equal",
                 percentages: {},
+                currency: "THB",
+                customCurrency: "",
             },
         ]);
     };
@@ -269,18 +305,38 @@ export default function ManualSplitPage() {
                     value={expenseName}
                     onChange={(e) => setExpenseName(e.target.value)}
                     placeholder="Enter your expense name (e.g. Dinner)"
-                    className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100 
+                    className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100
                      focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {/* Total Expense Display */}
                 <label className="text-gray-700 font-medium">Total Expense</label>
-                <div className="w-full p-3 mb-4 mt-2 border-none rounded-xl bg-gray-100 flex items-center gap-5">
-                    <span className="text-lg">
-                        ฿
-                        {items
-                            .reduce((acc, item) => acc + parseFloat(item.amount || "0"), 0)
-                            .toFixed(2)}
-                    </span>
+                <div className="w-full p-3 mb-4 mt-2 border-none rounded-xl bg-gray-100">
+                    {(() => {
+                        // Group items by currency
+                        const currencyTotals = items.reduce((acc, item) => {
+                            const currency = getItemCurrency(item);
+                            const amount = parseFloat(item.amount || "0");
+                            if (!acc[currency]) {
+                                acc[currency] = 0;
+                            }
+                            acc[currency] += amount;
+                            return acc;
+                        }, {} as { [key: string]: number });
+
+                        return (
+                            <div className="flex flex-col gap-1">
+                                {Object.entries(currencyTotals).map(([currency, total]) => (
+                                    <span key={currency} className="text-lg">
+                                        {getCurrencySymbol(currency)}
+                                        {total.toFixed(2)}
+                                        {Object.keys(currencyTotals).length > 1 && (
+                                            <span className="text-sm text-gray-500 ml-1">({currency})</span>
+                                        )}
+                                    </span>
+                                ))}
+                            </div>
+                        );
+                    })()}
                 </div>
                 {/* Items List */}
                 <div className="mb-6">
@@ -329,22 +385,87 @@ export default function ManualSplitPage() {
                                 />
                             </div>
 
+                            {/* Currency Selector */}
+                            <div className="mb-3">
+                                <p className="text-sm font-medium text-gray-700 mb-2">Currency</p>
+                                <div className="relative w-full">
+                                    <button
+                                        type="button"
+                                        onClick={() => setOpenCurrencyPicker(openCurrencyPicker === index ? null : index)}
+                                        className="w-full flex justify-between items-center cursor-pointer p-2 border rounded-lg bg-gray-100"
+                                    >
+                                        <span className="text-sm">
+                                            {item.currency === "CUSTOM" && item.customCurrency.trim() !== ""
+                                                ? `${item.customCurrency.toUpperCase()}`
+                                                : item.currency === "CUSTOM"
+                                                ? "Custom"
+                                                : `${item.currency} (${getCurrencySymbol(item.currency)})`}
+                                        </span>
+                                        <span className="text-gray-500 text-xs">{openCurrencyPicker === index ? "▲" : "▼"}</span>
+                                    </button>
+                                    {openCurrencyPicker === index && (
+                                        <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2">
+                                            {["THB", "USD", "JPY", "CUSTOM"].map((currency) => (
+                                                <label
+                                                    key={currency}
+                                                    className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-blue-50 cursor-pointer"
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name={`currency-${index}`}
+                                                        checked={item.currency === currency}
+                                                        onChange={() => {
+                                                            handleItemCurrencyChange(index, currency);
+                                                            setOpenCurrencyPicker(null);
+                                                        }}
+                                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    />
+                                                    <span className="text-gray-700 text-sm">
+                                                        {currency === "CUSTOM"
+                                                            ? "Custom"
+                                                            : `${currency} (${getCurrencySymbol(currency)})`}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Custom Currency Input */}
+                                {item.currency === "CUSTOM" && (
+                                    <input
+                                        type="text"
+                                        value={item.customCurrency}
+                                        onChange={(e) => updateItem(index, "customCurrency", e.target.value.toUpperCase().slice(0, 3))}
+                                        placeholder="e.g., EUR, GBP"
+                                        maxLength={3}
+                                        className="w-full p-2 mt-2 border-none rounded-lg bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    />
+                                )}
+                            </div>
+
                             {/* Participants */}
+                            <div className="mb-3">
+                                <p className="text-sm font-medium text-gray-700 mb-2">Participants</p>
                             {(item.splitMethod === "equal" || item.splitMethod === "percentage") && (
                                 <div className="mb-3 flex gap-3">
                                     <div className="relative w-full">
-                                        <details className="w-full">
-                                            <summary className="flex justify-between items-center cursor-pointer p-2 border rounded-lg bg-gray-100 list-none">
-                                                <span className="text-sm">
-                                                    {item.sharedWith.length > 0
-                                                        ? `Shared with: ${participants
-                                                            .filter((p) => item.sharedWith.includes(p.id))
-                                                            .map((p) => p.name)
-                                                            .join(", ")}`
-                                                        : "Participants"}
-                                                </span>
-                                            </summary>
-                                            <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOpenParticipantPicker(openParticipantPicker === index ? null : index)}
+                                            className="w-full flex justify-between items-center cursor-pointer p-2 border rounded-lg bg-gray-100"
+                                        >
+                                            <span className="text-sm">
+                                                {item.sharedWith.length > 0
+                                                    ? `Shared with: ${participants
+                                                        .filter((p) => item.sharedWith.includes(p.id))
+                                                        .map((p) => p.name)
+                                                        .join(", ")}`
+                                                    : "Add participants"}
+                                            </span>
+                                            <span className="text-gray-500 text-xs">{openParticipantPicker === index ? "▲" : "▼"}</span>
+                                        </button>
+                                        {openParticipantPicker === index && (
+                                            <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2 max-h-48 overflow-y-auto">
                                                 {participants.filter((p) => p.id !== Number(user?.id)).map((p) => (
                                                     <label
                                                         key={p.id}
@@ -360,10 +481,11 @@ export default function ManualSplitPage() {
                                                     </label>
                                                 ))}
                                             </div>
-                                        </details>
+                                        )}
                                     </div>
                                 </div>
                             )}
+                            </div>
 
                             {/* Percentage Details */}
                             {item.splitMethod === "percentage" && item.sharedWith.length > 0 && (

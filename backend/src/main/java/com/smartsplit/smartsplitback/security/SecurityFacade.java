@@ -1,5 +1,7 @@
 package com.smartsplit.smartsplitback.security;
 
+import com.smartsplit.smartsplitback.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -7,16 +9,17 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.Objects;
 
 @Component
 public class SecurityFacade {
 
     private final JwtService jwtService;
+    private final UserRepository userRepo;
 
-    public SecurityFacade(JwtService jwtService) {
+    public SecurityFacade(JwtService jwtService, UserRepository userRepo) {
         this.jwtService = jwtService;
+        this.userRepo = userRepo;
     }
 
     public Long currentUserId() {
@@ -25,13 +28,11 @@ public class SecurityFacade {
 
         Object principal = auth.getPrincipal();
         if (principal instanceof String s) {
-
             if (s.chars().allMatch(Character::isDigit)) {
                 try { return Long.parseLong(s); } catch (NumberFormatException ignore) {}
             }
         }
 
-        // fallback: ยังมี token เก่า → อ่าน uid จาก JWT claim
         String token = resolveBearerToken();
         if (token != null) {
             Long uid = jwtService.getUserId(token);
@@ -41,15 +42,20 @@ public class SecurityFacade {
     }
 
     public boolean hasRole(String role) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) return false;
-        for (GrantedAuthority ga : auth.getAuthorities()) {
-            if (Objects.equals(ga.getAuthority(), role)) return true;
-        }
-        return false;
+        Long uid = currentUserId();
+        if (uid == null) return false;
+
+        var userOpt = userRepo.findById(uid);
+        if (userOpt.isEmpty() || userOpt.get().getRole() == null) return false;
+
+        String springRole = "ROLE_" + userOpt.get().getRole().name();
+        return springRole.equals(role);
     }
 
-    public boolean isAdmin() { return hasRole("ROLE_ADMIN"); }
+
+    public boolean isAdmin() {
+        return hasRole("ROLE_ADMIN");
+    }
 
     private String resolveBearerToken() {
         var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();

@@ -27,7 +27,7 @@ const Navbar = () => {
         <Menu as="div" className="relative inline-block text-left">
           <div>
             <MenuButton
-              aria-label="User account"
+              data-cy="User-account"
               className="p-2 rounded-full hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#222831] focus:ring-white transition-colors"
             >
               <UserCircleIcon className="h-6 w-6" />
@@ -57,6 +57,7 @@ const Navbar = () => {
                 <MenuItem>
                   {({ focus }) => (
                     <button
+                      data-cy="Sign-out"
                       onClick={handleLogout}
                       className={`${
                         focus ? "bg-gray-100 text-gray-900" : "text-gray-700"

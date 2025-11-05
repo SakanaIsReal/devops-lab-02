@@ -1,4 +1,3 @@
-
 package com.smartsplit.smartsplitback.it.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,10 +22,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@DisplayName("ExpenseSharesQueryController IT (FULL stack ผ่าน DB จริง)")
 class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
 
     private static final String BASE = "/api/expenses/{expenseId}/shares";
+    private static final int SCALE = 6;
+    private static final java.math.RoundingMode RM = java.math.RoundingMode.HALF_UP;
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
@@ -55,6 +55,17 @@ class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
         return req -> { req.addHeader("Authorization", "Bearer " + jwtFor(id, JwtService.ROLE_USER)); return req; };
     }
 
+    private ExpenseItemShare seedValueShare(ExpenseItem item, User user, String value) {
+        ExpenseItemShare s = new ExpenseItemShare();
+        s.setExpenseItem(item);
+        s.setParticipant(user);
+        BigDecimal v = new BigDecimal(value).setScale(SCALE, RM);
+        s.setShareValue(v);
+        s.setShareOriginalValue(v);
+        s.setSharePercent(null);
+        return s;
+    }
+
     @BeforeEach
     void setUp() {
 
@@ -64,7 +75,6 @@ class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
         groupMemberRepository.deleteAll();
         groupRepository.deleteAll();
         userRepository.deleteAll();
-
 
         User me = new User();
         me.setEmail("me@example.com");
@@ -87,14 +97,12 @@ class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
         outsider.setRole(Role.USER);
         outsiderId = userRepository.save(outsider).getId();
 
-        // ---- group  ----
         Group g = new Group();
         g.setName("IT Test Group");
-        g.setOwner(me);                
+        g.setOwner(me);
         g = groupRepository.save(g);
         groupId = g.getId();
 
-        // ---- group members (me + other) ----
         GroupMember gm1 = new GroupMember();
         gm1.setGroup(g);
         gm1.setUser(me);
@@ -105,60 +113,42 @@ class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
         gm2.setUser(other);
         groupMemberRepository.save(gm2);
 
-        // ---- expense ----
         Expense exp = new Expense();
         exp.setGroup(g);
         exp.setTitle("Dinner");
         exp.setStatus(ExpenseStatus.OPEN);
         exp.setType(ExpenseType.EQUAL);
-       
-        exp.setAmount(new BigDecimal("300.00"));
+        exp.setAmount(new BigDecimal("300.00").setScale(SCALE, RM));
         exp.setPayer(me);
         exp = expenseRepository.save(exp);
         expenseId = exp.getId();
 
-        // ---- expense items ----
         ExpenseItem item1 = new ExpenseItem();
         item1.setExpense(exp);
         item1.setName("Pizza");
-        item1.setAmount(new BigDecimal("200.00"));
+        item1.setAmount(new BigDecimal("200.00").setScale(SCALE, RM));
         item1 = expenseItemRepository.save(item1);
 
         ExpenseItem item2 = new ExpenseItem();
         item2.setExpense(exp);
         item2.setName("Drinks");
-        item2.setAmount(new BigDecimal("100.00"));
+        item2.setAmount(new BigDecimal("100.00").setScale(SCALE, RM));
         item2 = expenseItemRepository.save(item2);
 
-        // ---- shares (ใช้ shareValue/sharePercent ) ----
-        ExpenseItemShare s1 = new ExpenseItemShare();
-        s1.setExpenseItem(item1);
-        s1.setParticipant(me);
-        s1.setShareValue(new BigDecimal("120.00"));
+        ExpenseItemShare s1 = seedValueShare(item1, me, "120.00");
         expenseItemShareRepository.save(s1);
 
-        ExpenseItemShare s2 = new ExpenseItemShare();
-        s2.setExpenseItem(item1);
-        s2.setParticipant(other);
-        s2.setShareValue(new BigDecimal("80.00"));
+        ExpenseItemShare s2 = seedValueShare(item1, other, "80.00");
         expenseItemShareRepository.save(s2);
 
-        ExpenseItemShare s3 = new ExpenseItemShare();
-        s3.setExpenseItem(item2);
-        s3.setParticipant(me);
-        s3.setShareValue(new BigDecimal("60.00"));
+        ExpenseItemShare s3 = seedValueShare(item2, me, "60.00");
         expenseItemShareRepository.save(s3);
 
-        ExpenseItemShare s4 = new ExpenseItemShare();
-        s4.setExpenseItem(item2);
-        s4.setParticipant(other);
-        s4.setShareValue(new BigDecimal("40.00"));
+        ExpenseItemShare s4 = seedValueShare(item2, other, "40.00");
         expenseItemShareRepository.save(s4);
 
         assertThat(expenseItemShareRepository.findAll()).hasSize(4);
     }
-
-    // -------------------- LIST (GET /shares) --------------------
 
     @Test
     @DisplayName("401: ไม่ส่ง Authorization header → ถูกบล็อกก่อนเข้า controller")
@@ -184,8 +174,6 @@ class ExpenseSharesQueryControllerIT extends BaseIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
-
-    // -------------------- LIST MINE (GET /shares/mine) --------------------
 
     @Test
     @DisplayName("401: /mine ไม่ส่ง token → Unauthorized")
