@@ -799,3 +799,10 @@ export const updatePaymentStatus = async (expenseId: number, paymentId: number, 
     const response = await api.put(`/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
     return response.data;
 };
+
+export const exportExpensePdf = async (expenseId: string): Promise<Blob> => {
+    const response = await api.get(`/expenses/${expenseId}/export.pdf`, {
+        responseType: 'blob',
+    });
+    return response.data;
+};
