@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
-import { getBillDetails, getExpenseSettlements, fetchUserProfiles, getExpensePayments } from '../utils/api';
+import { getBillDetails, getExpenseSettlements, fetchUserProfiles, getExpensePayments, exportExpensePdf } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { BillDetail, Payment } from '../types';
 
@@ -45,6 +45,27 @@ export const BillDetailPage: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handleExportPdf = async () => {
+    if (!expenseId) {
+      alert('Expense ID is missing.');
+      return;
+    }
+    try {
+      const blob = await exportExpensePdf(expenseId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `expense-${expenseId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      alert('Failed to export PDF.');
+    }
+  };
 
   // ... (useEffect for initial state from navigation)
 
@@ -161,10 +182,7 @@ export const BillDetailPage: React.FC = () => {
         <div className="flex items-center justify-between mt-6 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-[#2c4359] tracking-tight">Bill Detail</h1>
-            <p className="text-slate-500 text-1xl mt-1">
-              Transactions Left:{' '}
-              <span className="font-semibold text-[#2c4359]">{totalLeft}</span>
-            </p>
+
           </div>
 
         </div>
@@ -182,17 +200,67 @@ export const BillDetailPage: React.FC = () => {
         {bill && (
           <>
             {/* Bill Info */}
-            <div className="bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-2xl p-5 mb-6">
-              <div className="flex flex-col sm:flex-row sm:items-center  gap-5">
-                <p className="text-lg font-semibold text-[#0c0c0c]">
-                  Bill Name: <span className="font-normal">{bill.storeName}</span>
-                </p>
-               
-                <p className="text-lg font-semibold text-[#0c0c0c]">
-                  Payer: <span className="font-normal">{bill.payer}</span>
-                </p>
-                 <div className="bg-white shadow-sm rounded-xl px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200">
-                  Date : {bill?.date || '—'}
+            <div className="bg-white/95 backdrop-blur-md border border-slate-200 shadow-xl rounded-2xl p-6 mb-8">
+
+              {/* Header Title */}
+              <div className="flex items-center justify-between mb-6 border-b pb-4">
+                <h2 className="text-2xl font-extrabold text-gray-800">
+                  💸 Bill Summary
+                </h2>
+
+                <button
+                  className="flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition duration-150 ease-in-out hover:bg-gray-50 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  onClick={handleExportPdf}
+                >
+                  <svg
+                    className="h-4 w-4 text-red-500"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  Export to PDF
+                </button>
+              </div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
+
+                {/* Primary Bill Details (Left Side) */}
+                <div className="flex flex-col gap-3">
+
+                  {/* Bill Name - Highlighted */}
+                  <p className="text-2xl font-bold text-slate-600 tracking-tight">
+                    {bill.storeName || '—'}
+                  </p>
+
+                  {/* Payer and Date (Grouped) */}
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                    <p className="font-semibold">
+                      Payer: <span className="font-normal text-slate-700">{bill.payer || '—'}</span>
+                    </p>
+
+                    <div className="flex items-center gap-1 px-3 py-1 bg-slate-100 rounded-full font-medium border border-slate-200">
+                      🗓 Date: <span className="text-slate-700">{bill?.date || '—'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transactions Left Counter (Right Side - Emphasis) */}
+                <div className="sm:ml-auto">
+                  <div className="bg-indigo-50 border-2 border-indigo-200 shadow-md rounded-xl p-3 sm:p-4 text-center">
+                    <p className="text-sm uppercase font-medium text-slate-600 mb-1">
+                      Transactions Left
+                    </p>
+                    <span className="text-3xl font-extrabold text-indigo-700">
+                      {totalLeft}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -261,7 +329,7 @@ export const BillDetailPage: React.FC = () => {
       </div>
 
       <BottomNav activeTab={undefined} />
-    </div>
+    </div >
   );
 
 };

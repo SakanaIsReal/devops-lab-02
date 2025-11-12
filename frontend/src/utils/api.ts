@@ -17,7 +17,7 @@ const imageCache = new Map<string, string>();
  * - If URL is a reference URL (e.g., /files/{id}), fetches and caches the base64
  * - Returns empty string if URL is undefined or fetch fails
  */
-async function resolveImageUrl(url: string | undefined): Promise<string> {
+export async function resolveImageUrl(url: string | undefined): Promise<string> {
     if (!url || url.trim() === '') return '';
 
     // Already a data URL, return as-is
@@ -148,15 +148,36 @@ export const getTransactions = async (): Promise<any[]> => {
 };
 
 export const getGroups = async (query?: string): Promise<Group[]> => {
-    const endpoint = query ? `/api/groups?q=${query}` : '/api/groups/mine';
+    const endpoint = query ? `/groups?q=${query}` : '/groups/mine';
     const response = await api.get(endpoint);
-    return response.data;
+    const groups: Group[] = response.data;
+
+    // Resolve all group cover images in parallel
+    await Promise.all(
+        groups.map(async (group: Group) => {
+            if (group.coverImageUrl) {
+                group.coverImageUrl = await resolveImageUrl(group.coverImageUrl);
+            }
+        })
+    );
+
+    return groups;
 };
 
 
 export const searchUsers = async (query: string): Promise<any[]> => {
     const response = await api.get(`/users/search?q=${query}`);
-    return response.data;
+    const users: any[] = response.data;
+
+    await Promise.all(
+        users.map(async (user) => {
+            if (user.avatarUrl) {
+                user.avatarUrl = await resolveImageUrl(user.avatarUrl);
+            }
+        })
+    );
+
+    return users;
 };
 
 
@@ -476,7 +497,7 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
            : Array.isArray(d?.content) ? d.content
            : [];
 
-  return raw.map((u: any) => {
+  const users: User[] = raw.map((u: any) => {
     const nested = u.user ?? u.profile ?? u.account ?? {};
     return {
       ...u,
@@ -487,6 +508,16 @@ export const getGroupMembers = async (groupId: number | string): Promise<User[]>
       imageUrl: u.avatarUrl ?? u.imageUrl ?? nested?.avatarUrl ?? nested?.imageUrl ?? '',
     } as User;
   });
+
+  await Promise.all(
+    users.map(async (user) => {
+        if (user.imageUrl) {
+            user.imageUrl = await resolveImageUrl(user.imageUrl);
+        }
+    })
+  );
+
+  return users;
 };
 
 
@@ -596,15 +627,17 @@ export const fetchUserProfiles = async (ids: number[]) => {
 
   // สร้างแผนที่ id -> โปรไฟล์ normalize แล้ว
   const out = new Map<number, any>();
-  byId.forEach((p, id) => {
+  const promises = Array.from(byId.entries()).map(async ([id, p]) => {
+    const imageUrl = await resolveImageUrl(p?.avatarUrl ?? p?.imageUrl ?? '');
     out.set(id, {
       id,
       name: deriveName(p),
       email: p?.email ?? '',
       phone: p?.phone ?? '',
-      imageUrl: p?.avatarUrl ?? p?.imageUrl ?? '',
+      imageUrl: imageUrl,
     });
   });
+  await Promise.all(promises);
   return out;
 };
 // utils.ts
@@ -755,10 +788,21 @@ export const hasPendingPayment = async (expenseId: number, userId: number): Prom
 
 export const getPayment = async (expenseId: number, paymentId: number): Promise<Payment> => {
     const response = await api.get(`/expenses/${expenseId}/payments/${paymentId}`);
-    return response.data;
+    const payment: Payment = response.data;
+    if (payment.receiptFileUrl) {
+        payment.receiptFileUrl = await resolveImageUrl(payment.receiptFileUrl);
+    }
+    return payment;
 };
 
 export const updatePaymentStatus = async (expenseId: number, paymentId: number, status: 'VERIFIED' | 'REJECTED'): Promise<Payment> => {
     const response = await api.put(`/expenses/${expenseId}/payments/${paymentId}/status?status=${status}`);
+    return response.data;
+};
+
+export const exportExpensePdf = async (expenseId: string): Promise<Blob> => {
+    const response = await api.get(`/expenses/${expenseId}/export.pdf`, {
+        responseType: 'blob',
+    });
     return response.data;
 };
