@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// src/pages/ManualSplitPage.tsx
+import React, { useState, useEffect, useMemo, useRef } from "react"; // 1. ✅ ลบ _ ออก
 import { useNavigate, useLocation } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { BottomNav } from "../components/BottomNav";
@@ -13,6 +14,14 @@ import {
     getUserInformation,
 } from "../utils/api";
 
+// ✅ 2. เพิ่ม Interface สำหรับ Rate
+interface OtherRate {
+    id: number;
+    currency: string;
+    rate: string;
+}
+
+// ✅ 3. อัปเดต Type ของ ExpenseItem
 type ExpenseItem = {
     name: string;
     amount: string;
@@ -21,6 +30,10 @@ type ExpenseItem = {
     percentages: { [personId: number]: number };
     currency: string;
     customCurrency: string;
+    // --- ฟีลด์ใหม่ ---
+    exchangeRate: string;
+    showExchangeRateInput: boolean; // State ของ Checkbox
+    otherRates: OtherRate[];
 };
 
 type SplitMethod = "equal" | "percentage";
@@ -39,6 +52,8 @@ export default function ManualSplitPage() {
     const [openParticipantPicker, setOpenParticipantPicker] = useState<number | null>(null);
 
     const groupId = location.state?.groupId;
+
+    // ✅ 4. อัปเดต State เริ่มต้นของ items
     const [items, setItems] = useState<ExpenseItem[]>([
         {
             name: "",
@@ -48,9 +63,18 @@ export default function ManualSplitPage() {
             percentages: {},
             currency: "THB",
             customCurrency: "",
+            // --- ค่าเริ่มต้นสำหรับฟีลด์ใหม่ ---
+            exchangeRate: "",
+            showExchangeRateInput: false,
+            otherRates: [],
         },
     ]);
     const navigate = useNavigate();
+
+    // ✅ 5. เพิ่ม State สำหรับ Upload
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploadingItemIndex, setUploadingItemIndex] = useState<number | null>(null);
+
 
     // Helper function to get currency symbol
     const getCurrencySymbol = (currency: string): string => {
@@ -69,13 +93,24 @@ export default function ManualSplitPage() {
             : item.currency;
     };
 
-    // Handle currency dropdown change for an item
+    // ✅ 6. อัปเดต Handle currency change
     const handleItemCurrencyChange = (itemIndex: number, value: string) => {
         const newItems = [...items];
-        newItems[itemIndex].currency = value;
+        const item = { ...newItems[itemIndex] };
+        
+        item.currency = value;
         if (value !== "CUSTOM") {
-            newItems[itemIndex].customCurrency = "";
+            item.customCurrency = "";
         }
+
+        // ❗️ Reset ค่า Exchange Rate ถ้ากลับมาเลือก THB
+        if (value === "THB") {
+            item.exchangeRate = "";
+            item.showExchangeRateInput = false;
+            item.otherRates = [];
+        }
+
+        newItems[itemIndex] = item;
         setItems(newItems);
     };
 
@@ -99,87 +134,120 @@ export default function ManualSplitPage() {
 
     // ตรวจสอบว่ามีข้อมูลอย่างน้อย 1 รายการ
     const hasValidItems = () => {
-        return items.some((item) => {
+        return items.some((item: ExpenseItem) => { // ✅ TS Fix
             const hasName = item.name.trim() !== "";
             const hasAmount = parseFloat(item.amount || "0") > 0;
             const hasParticipants = item.sharedWith.length > 0;
+            
+            // ✅ 7. เพิ่มการตรวจสอบ Exchange Rate
+            const itemCurrency = getItemCurrency(item);
+            let hasValidRate = true;
+            if (itemCurrency !== "THB") {
+                if (!item.showExchangeRateInput) {
+                    hasValidRate = false; // ถ้าเลือกเงินตราต่างประเทศ ต้องติ๊ก checkbox
+                }
+                const rate = parseFloat(item.exchangeRate);
+                if (item.showExchangeRateInput && (isNaN(rate) || rate <= 0)) {
+                    hasValidRate = false; // ถ้าติ๊กแล้ว ต้องใส่เรทให้ถูกต้อง
+                }
+            }
+            // ... (จบการตรวจสอบ)
 
             if (item.splitMethod === "percentage") {
                 const totalPercentage = Object.values(item.percentages).reduce(
-                    (sum, p) => sum + p,
+                    (sum: number, p: number) => sum + p, // ✅ TS Fix
                     0
                 );
-                return hasName && hasAmount && hasParticipants && totalPercentage <= 100;
+                return hasName && hasAmount && hasParticipants && totalPercentage <= 100 && hasValidRate;
             }
 
-            return hasName && hasAmount && hasParticipants;
+            return hasName && hasAmount && hasParticipants && hasValidRate;
         });
     };
 
-    // Submit และเรียก API
+    // ✅ 8. อัปเดต handleSubmit (สำคัญมาก)
     const handleSubmit = async () => {
         if (!hasValidItems()) {
-            alert("Please add at least one complete item with all required information.");
+            alert("Please add at least one complete item. If using a foreign currency, you must check 'Set Exchange Rate' and provide a valid rate.");
             return;
         }
 
-        try {
-            const totalAmount = items.reduce(
-                (acc, item) => acc + parseFloat(item.amount || "0"),
-                0
-            );
-            if (!user) {
-                alert("User information is missing. Please log in again.");
-                return;
+        if (!user) {
+            alert("User information is missing. Please log in again.");
+            return;
+        }
+
+        let totalAmountInThb = 0;
+        const itemCalculations: { amountInThb: number, rateNum?: number }[] = [];
+
+        // --- 8.1. คำนวณยอด THB ทั้งหมดก่อน
+        for (const item of items) {
+            const amountNum = parseFloat(item.amount || "0");
+            const activeCurrency = getItemCurrency(item);
+            let itemAmountInThb = amountNum;
+            let rateNum: number | undefined = undefined;
+
+            if (activeCurrency !== "THB") {
+                // (การตรวจสอบใน hasValidItems() ควรจะดักไว้แล้ว แต่เช็คอีกครั้ง)
+                if (!item.showExchangeRateInput) {
+                    alert(`Item "${item.name}" uses ${activeCurrency} but 'Set Exchange Rate' is not checked.`);
+                    return;
+                }
+                rateNum = Number(item.exchangeRate);
+                if (!Number.isFinite(rateNum) || rateNum <= 0) {
+                    alert(`Item "${item.name}" has an invalid exchange rate.`);
+                    return;
+                }
+                itemAmountInThb = amountNum * rateNum;
             }
+
+            itemCalculations.push({ amountInThb: itemAmountInThb, rateNum: rateNum });
+            totalAmountInThb += itemAmountInThb;
+        }
+
+        try {
+            // --- 8.2. สร้าง Expense หลัก (ใช้ยอด THB)
             const expensePayload = {
                 groupId: Number(groupId),
                 payerUserId: Number(user.id),
                 title: expenseName,
                 type: "CUSTOM" as const,
                 status: "SETTLED",
-                amount: totalAmount,
+                amount: totalAmountInThb, // ❗️ใช้ยอด THB
             };
-            console.log("Expense Payload:", expensePayload);
-            console.log("Item Payload:", items);
-
+            
             const expense = await createExpenseApi(expensePayload);
             const expenseId = expense.id;
 
-            // Step 2: Create Expense Items
-            for (const item of items) {
+            // --- 8.3. สร้าง Expense Items และ Shares
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const calculation = itemCalculations[i];
+                const itemCurrency = getItemCurrency(item);
+
                 try {
-                    console.log("Processing item:", item);
-
-                    const itemCurrency = getItemCurrency(item);
+                    // สร้าง Item (ใช้ยอดเดิม สกุลเงินเดิม)
                     const createdItem = await createExpenseItem(expenseId, item.name, item.amount, itemCurrency);
-                    console.log("Created Item:", createdItem);
-
                     const itemId = createdItem.id;
 
                     if (item.splitMethod === "equal") {
-                        // จำนวนที่ต้องจ่ายต่อคน
+                        // ❗️ใช้ยอด THB ที่คำนวณไว้ในการหาร
                         const shareValue = (
-                            parseFloat(item.amount) / (item.sharedWith.length + 1) // +1 = คนจ่ายเอง
+                            calculation.amountInThb / (item.sharedWith.length + 1) // +1 = คนจ่ายเอง
                         ).toFixed(2);
 
                         for (const participantId of item.sharedWith) {
-                            try {
-                                await createExpenseItemShare(expenseId, itemId, participantId, shareValue);
-                            } catch (error: any) {
-                                console.error("Backend Error:", error.response?.data || error.message);
-                            }
+                            await createExpenseItemShare(expenseId, itemId, participantId, shareValue);
                         }
                     } else if (item.splitMethod === "percentage") {
                         for (const participantId of item.sharedWith) {
                             const sharePercent = item.percentages[participantId]?.toString() || "0";
-
                             await createExpenseItemShare(
                                 expenseId,
                                 itemId,
                                 participantId,
-                                undefined, // ไม่ส่ง value
-                                sharePercent // ใช้เปอร์เซ็นต์
+                                undefined, 
+                                sharePercent // ส่ง % ไป (Backend ควรถือยอด Item THB เป็น 100%)
                             );
                         }
                     }
@@ -204,6 +272,7 @@ export default function ManualSplitPage() {
         navigate(-1);
     };
 
+    // ✅ 9. อัปเดต Add Item
     const addItem = () => {
         setItems([
             ...items,
@@ -215,16 +284,22 @@ export default function ManualSplitPage() {
                 percentages: {},
                 currency: "THB",
                 customCurrency: "",
+                // --- เพิ่ม ---
+                exchangeRate: "",
+                showExchangeRateInput: false,
+                otherRates: [],
             },
         ]);
     };
 
+    // (updateItem ไม่ต้องแก้)
     const updateItem = (index: number, field: keyof ExpenseItem, value: any) => {
         const newItems = [...items];
         newItems[index] = { ...newItems[index], [field]: value };
         setItems(newItems);
     };
 
+    // (toggleShareWith)
     const toggleShareWith = (itemIndex: number, personId: number) => {
         const newItems = [...items];
         const currentShareWith = newItems[itemIndex].sharedWith;
@@ -232,7 +307,7 @@ export default function ManualSplitPage() {
 
         if (currentShareWith.includes(personId)) {
             // remove
-            newItems[itemIndex].sharedWith = currentShareWith.filter((id) => id !== personId);
+            newItems[itemIndex].sharedWith = currentShareWith.filter((id: number) => id !== personId); // ✅ TS Fix
             const newPercentages = { ...item.percentages };
             delete newPercentages[personId];
             newItems[itemIndex].percentages = newPercentages;
@@ -250,6 +325,7 @@ export default function ManualSplitPage() {
         setItems(newItems);
     };
 
+    // (updatePercentage ไม่ต้องแก้)
     const updatePercentage = (
         itemIndex: number,
         personId: number,
@@ -263,6 +339,7 @@ export default function ManualSplitPage() {
         setItems(newItems);
     };
 
+    // (changeSplitMethod)
     const changeSplitMethod = (itemIndex: number, method: SplitMethod) => {
         const newItems = [...items];
         const item = newItems[itemIndex];
@@ -270,7 +347,7 @@ export default function ManualSplitPage() {
         if (method === "percentage" && item.sharedWith.length > 0) {
             const equalPercentage = Math.floor(100 / item.sharedWith.length);
             const percentages: { [key: number]: number } = {};
-            item.sharedWith.forEach((personId) => {
+            item.sharedWith.forEach((personId: number) => { // ✅ TS Fix
                 percentages[personId] = equalPercentage;
             });
             newItems[itemIndex].percentages = percentages;
@@ -279,10 +356,143 @@ export default function ManualSplitPage() {
         }
         setItems(newItems);
     };
+
+    // --- ✅ 10. เพิ่ม Handlers ทั้งหมด (สำหรับ Item-specific) ---
+
+    const handleAddRate = (itemIndex: number) => {
+        const newItems = [...items];
+        const item = { ...newItems[itemIndex] };
+        item.otherRates = [
+            ...item.otherRates,
+            { id: Date.now(), currency: "", rate: "" }
+        ];
+        newItems[itemIndex] = item;
+        setItems(newItems);
+    };
+
+    const handleOtherRateChange = (itemIndex: number, rateId: number, field: 'currency' | 'rate', value: string) => {
+        const newItems = [...items];
+        const item = { ...newItems[itemIndex] };
+        item.otherRates = item.otherRates.map((r: OtherRate) => // ✅ TS Fix
+            r.id === rateId
+            ? { ...r, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value } 
+            : r
+        );
+        newItems[itemIndex] = item;
+        setItems(newItems);
+    };
+
+    const handleRemoveRate = (itemIndex: number, rateId: number) => {
+        const newItems = [...items];
+        const item = { ...newItems[itemIndex] };
+        item.otherRates = item.otherRates.filter((r: OtherRate) => r.id !== rateId); // ✅ TS Fix
+        newItems[itemIndex] = item;
+        setItems(newItems);
+    };
+
+    const handleDownload = (itemIndex: number) => {
+        const item = items[itemIndex];
+        const activeCurrency = getItemCurrency(item);
+        
+        const ratesToDownload: {[key: string]: number} = {};
+
+        if (activeCurrency !== "THB" && item.exchangeRate) {
+            ratesToDownload[activeCurrency] = parseFloat(item.exchangeRate);
+        }
+        item.otherRates.forEach((r: OtherRate) => { // ✅ TS Fix
+            if (r.currency && r.rate) {
+                ratesToDownload[r.currency] = parseFloat(r.rate);
+            }
+        });
+
+        if (Object.keys(ratesToDownload).length === 0) {
+            alert("No rates to download.");
+            return;
+        }
+
+        const jsonString = JSON.stringify(ratesToDownload, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `item_${itemIndex}_rates.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleUploadClick = (itemIndex: number) => {
+        setUploadingItemIndex(itemIndex); // ❗️ ตั้งค่า Index ก่อน
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (uploadingItemIndex === null) return; // ❗️ เช็ค Index
+        
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const json = JSON.parse(e.target?.result as string);
+                if (typeof json !== 'object' || json === null || Array.isArray(json)) {
+                    throw new Error("Invalid JSON format.");
+                }
+
+                const newItems = [...items];
+                const item = { ...newItems[uploadingItemIndex] };
+                const activeCurrency = getItemCurrency(item);
+                
+                const newOtherRates: OtherRate[] = [];
+                let mainRateSet = false;
+
+                Object.keys(json).forEach((key, index) => {
+                    const rate = String(json[key]);
+                    const curr = key.toUpperCase();
+
+                    if (curr === activeCurrency) {
+                        item.exchangeRate = rate; // ❗️ อัปเดตช่องหลัก
+                        mainRateSet = true;
+                    } else {
+                        newOtherRates.push({
+                            id: Date.now() + index,
+                            currency: curr,
+                            rate: rate
+                        });
+                    }
+                });
+
+                item.otherRates = newOtherRates; // ❗️ อัปเดต Other Rates
+                
+                if (mainRateSet || newOtherRates.length > 0) {
+                    item.showExchangeRateInput = true; // ❗️ ติ๊ก Checkbox
+                }
+
+                if (!mainRateSet && activeCurrency !== "THB") {
+                    item.exchangeRate = ""; // ❗️ เคลียร์ช่องหลัก
+                }
+
+                newItems[uploadingItemIndex] = item;
+                setItems(newItems); // ❗️ อัปเดต State
+                
+            } catch (err: any) {
+                alert(`Error reading file: ${err.message}`);
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+        setUploadingItemIndex(null); // ❗️ เคลียร์ Index
+    };
+
+
+    // --- ✅ 11. อัปเดต JSX ---
     return (
         <div className="h-screen bg-white flex flex-col overflow-hidden">
             <Navbar />
             <div className="flex-1 overflow-y-auto pt-4 mt-5 pb-20 px-4 sm:px-6">
+                {/* ... (Header, Expense Name, Total Expense Display) ... */}
                 <CircleBackButton
                     onClick={handleBack}
                     className="border-b border-gray-200"
@@ -296,7 +506,6 @@ export default function ManualSplitPage() {
                         Method : Manual Split
                     </p>
                 </div>
-                {/* Expense Name */}
                 <label className="block text-gray-700 font-medium mb-2">
                     Expense Name
                 </label>
@@ -308,12 +517,11 @@ export default function ManualSplitPage() {
                     className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100
                      focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                {/* Total Expense Display */}
                 <label className="text-gray-700 font-medium">Total Expense</label>
                 <div className="w-full p-3 mb-4 mt-2 border-none rounded-xl bg-gray-100">
+                    {/* ... (Total Expense Logic - ✅ TS Fix) ... */}
                     {(() => {
-                        // Group items by currency
-                        const currencyTotals = items.reduce((acc, item) => {
+                        const currencyTotals = items.reduce((acc: { [key: string]: number }, item: ExpenseItem) => { // ✅ TS Fix
                             const currency = getItemCurrency(item);
                             const amount = parseFloat(item.amount || "0");
                             if (!acc[currency]) {
@@ -321,7 +529,7 @@ export default function ManualSplitPage() {
                             }
                             acc[currency] += amount;
                             return acc;
-                        }, {} as { [key: string]: number });
+                        }, {} as { [key: string]: number }); // ✅ TS Fix
 
                         return (
                             <div className="flex flex-col gap-1">
@@ -338,12 +546,13 @@ export default function ManualSplitPage() {
                         );
                     })()}
                 </div>
-                {/* Items List */}
+
+                {/* --- 🔽 Items List 🔽 --- */}
                 <div className="mb-6">
                     <h3 className="text-gray-700 font-medium mb-3">Items</h3>
-                    {items.map((item, index) => (
+                    {items.map((item: ExpenseItem, index: number) => ( // ✅ TS Fix
                         <div key={index} className="mb-4 p-3 border rounded-xl bg-white shadow-sm">
-                            {/* Split Method */}
+                            {/* ... (Split Method, Amount & Name - ไม่ต้องแก้) ... */}
                             <div className="mb-3">
                                 <p className="text-sm font-medium text-gray-700 mb-2">Split Method</p>
                                 <div className="flex gap-2 flex-wrap">
@@ -367,7 +576,6 @@ export default function ManualSplitPage() {
                                     </button>
                                 </div>
                             </div>
-                            {/* Amount & Name */}
                             <div className="mb-3 flex gap-3">
                                 <input
                                     type="number"
@@ -385,7 +593,7 @@ export default function ManualSplitPage() {
                                 />
                             </div>
 
-                            {/* Currency Selector */}
+                            {/* --- 🔽 Currency Selector (อัปเดต) 🔽 --- */}
                             <div className="mb-3">
                                 <p className="text-sm font-medium text-gray-700 mb-2">Currency</p>
                                 <div className="relative w-full">
@@ -415,7 +623,7 @@ export default function ManualSplitPage() {
                                                         name={`currency-${index}`}
                                                         checked={item.currency === currency}
                                                         onChange={() => {
-                                                            handleItemCurrencyChange(index, currency);
+                                                            handleItemCurrencyChange(index, currency); // ❗️ ใช้ฟังก์ชันที่อัปเดตแล้ว
                                                             setOpenCurrencyPicker(null);
                                                         }}
                                                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
@@ -442,8 +650,116 @@ export default function ManualSplitPage() {
                                     />
                                 )}
                             </div>
+                            {/* --- 🔼 สิ้นสุด Currency Selector 🔼 --- */}
 
-                            {/* Participants */}
+                            {/* --- 🔽 Checkbox และ Rate Manager (ใหม่) 🔽 --- */}
+                            
+                            {/* 1. Checkbox */}
+                            {item.currency !== "THB" && (
+                                <div className="mb-3">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={item.showExchangeRateInput}
+                                            onChange={(e) => {
+                                                const isChecked = e.target.checked;
+                                                updateItem(index, "showExchangeRateInput", isChecked);
+                                                if (!isChecked) {
+                                                    updateItem(index, "exchangeRate", ""); // ล้างเรทถ้าติ๊กออก
+                                                }
+                                            }}
+                                            className="w-4 h-4 text-blue-500 rounded focus:ring-0"
+                                        />
+                                        <span className="text-gray-700 text-sm font-medium">
+                                            Set Exchange Rate
+                                        </span>
+                                    </label>
+                                </div>
+                            )}
+                
+                            {/* 2. Rate Manager (โชว์เมื่อติ๊ก Checkbox) */}
+                            {item.showExchangeRateInput && (
+                                <div className="p-3 border rounded-lg bg-gray-50 mb-3">
+                                    {/* Input หลัก */}
+                                    <div className="mb-3">
+                                        <label className="block text-gray-700 text-sm font-medium mb-1">
+                                            Exchange Rate (1 {getItemCurrency(item)} = ? THB)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={item.exchangeRate}
+                                            onChange={(e) => updateItem(index, "exchangeRate", e.target.value)}
+                                            placeholder="Enter rate for main currency"
+                                            className="w-full p-2 border-none rounded-lg bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        />
+                                    </div>
+
+                                    <hr className="my-3"/>
+                                    <h4 className="text-sm font-medium text-gray-800 mb-2">
+                                        Rate Manager
+                                    </h4>
+                                    
+                                    {/* รายการ Rate อื่นๆ */}
+                                    <div className="space-y-2 mb-3">
+                                        {item.otherRates.map((rateItem: OtherRate) => ( // ✅ TS Fix
+                                            <div key={rateItem.id} className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={rateItem.currency}
+                                                    onChange={(e) => handleOtherRateChange(index, rateItem.id, 'currency', e.target.value)}
+                                                    placeholder="CUR"
+                                                    maxLength={3}
+                                                    className="w-1/4 p-2 text-sm border-none rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <input
+                                                    type="number"
+                                                    value={rateItem.rate}
+                                                    onChange={(e) => handleOtherRateChange(index, rateItem.id, 'rate', e.target.value)}
+                                                    placeholder="Rate"
+                                                    className="w-1/2 p-2 text-sm border-none rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveRate(index, rateItem.id)}
+                                                    className="w-1/4 bg-red-500 text-white text-xs py-2 rounded-lg hover:bg-red-600"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* ปุ่ม Add */}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddRate(index)}
+                                        className="w-full bg-blue-500 text-white font-medium py-2 text-sm rounded-lg hover:bg-blue-600 mb-2"
+                                    >
+                                        Add Other Rate
+                                    </button>
+                                    
+                                    {/* ปุ่ม Download / Upload */}
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownload(index)}
+                                            className="w-1/2 bg-green-500 text-white font-medium py-2 text-sm rounded-lg hover:bg-green-600"
+                                        >
+                                            Download
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleUploadClick(index)} // ❗️ ส่ง Index
+                                            className="w-1/2 bg-gray-600 text-white font-medium py-2 text-sm rounded-lg hover:bg-gray-700"
+                                        >
+                                            Upload
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {/* --- 🔼 สิ้นสุด Checkbox และ Rate Manager 🔼 --- */}
+
+                            {/* ... (Participants & Percentage Details - ✅ TS Fix) ... */}
                             <div className="mb-3">
                                 <p className="text-sm font-medium text-gray-700 mb-2">Participants</p>
                             {(item.splitMethod === "equal" || item.splitMethod === "percentage") && (
@@ -457,8 +773,8 @@ export default function ManualSplitPage() {
                                             <span className="text-sm">
                                                 {item.sharedWith.length > 0
                                                     ? `Shared with: ${participants
-                                                        .filter((p) => item.sharedWith.includes(p.id))
-                                                        .map((p) => p.name)
+                                                        .filter((p: Participant) => item.sharedWith.includes(p.id)) // ✅ TS Fix
+                                                        .map((p: Participant) => p.name) // ✅ TS Fix
                                                         .join(", ")}`
                                                     : "Add participants"}
                                             </span>
@@ -466,7 +782,7 @@ export default function ManualSplitPage() {
                                         </button>
                                         {openParticipantPicker === index && (
                                             <div className="absolute left-0 right-0 mt-2 w-full bg-white border rounded-lg shadow-lg z-10 p-2 max-h-48 overflow-y-auto">
-                                                {participants.filter((p) => p.id !== Number(user?.id)).map((p) => (
+                                                {participants.filter((p: Participant) => p.id !== Number(user?.id)).map((p: Participant) => ( // ✅ TS Fix
                                                     <label
                                                         key={p.id}
                                                         className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-blue-50 cursor-pointer"
@@ -486,14 +802,12 @@ export default function ManualSplitPage() {
                                 </div>
                             )}
                             </div>
-
-                            {/* Percentage Details */}
                             {item.splitMethod === "percentage" && item.sharedWith.length > 0 && (
                                 <div className="bg-gray-50 rounded-lg p-3">
                                     <h4 className="text-sm font-medium text-gray-700 mb-2">Split Details</h4>
                                     {participants
-                                        .filter((p) => item.sharedWith.includes(p.id))
-                                        .map((person) => (
+                                        .filter((p: Participant) => item.sharedWith.includes(p.id)) // ✅ TS Fix
+                                        .map((person: Participant) => ( // ✅ TS Fix
                                             <div key={person.id} className="flex items-center gap-2 text-sm">
                                                 <span className="text-gray-600 w-20">{person.name}</span>
                                                 <input
@@ -513,6 +827,7 @@ export default function ManualSplitPage() {
                             )}
                         </div>
                     ))}
+                    {/* ... (Add Item Button - ไม่ต้องแก้) ... */}
                     <button
                         onClick={addItem}
                         className="w-full py-2 px-4 bg-gray-100 text-blue-500 font-medium rounded-xl hover:bg-gray-200 transition flex items-center justify-center gap-2"
@@ -520,7 +835,7 @@ export default function ManualSplitPage() {
                         <span>+ Add Item</span>
                     </button>
                 </div>
-                {/* FINISH Button */}
+                {/* ... (FINISH Button - ไม่ต้องแก้) ... */}
                 <button
                     onClick={handleSubmit}
                     disabled={!hasValidItems()}
@@ -533,6 +848,15 @@ export default function ManualSplitPage() {
                 </button>
             </div>
             <BottomNav activeTab={undefined} />
+            
+            {/* ❗️ File Input ที่ซ่อนอยู่ (สำหรับ Upload) */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept=".json,application/json"
+                className="hidden"
+            />
         </div>
     );
 }
