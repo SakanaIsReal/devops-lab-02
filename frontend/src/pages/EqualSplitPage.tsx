@@ -55,21 +55,17 @@ export default function EqualSplitPage() {
     const [loadingMembers, setLoadingMembers] = useState<boolean>(false);
     const [membersError, setMembersError] = useState<string | null>(null);
 
-    // ✅ ฟังก์ชันช่วยดึงชื่อ (ปรับปรุงใหม่ ให้หาทุกที่)
     const getDisplayName = (u: any): string => {
         if (!u) return "";
-        // 1. หาจากชั้นนอกสุด
-        const directName = u.name || u.userName || u.username || u.displayName || u.fullName;
-        if (directName && typeof directName === 'string' && directName.trim()) return directName;
+        const direct = u.name || u.userName || u.username || u.displayName || u.fullName;
+        if (direct && typeof direct === 'string' && direct.trim()) return direct;
 
-        // 2. หาจากชั้นใน (เช่น u.user.name หรือ u.profile.userName)
         const nested = u.user || u.profile || u.account;
         if (nested) {
             const nestedName = nested.name || nested.userName || nested.username || nested.displayName || nested.fullName;
             if (nestedName && typeof nestedName === 'string' && nestedName.trim()) return nestedName;
         }
 
-        // 3. ถ้าไม่มีชื่อ ให้ลองเอาจาก Email
         const email = u.email || nested?.email;
         if (email && typeof email === 'string') return email.split("@")[0];
 
@@ -94,7 +90,6 @@ export default function EqualSplitPage() {
                 const baseMembers = await getGroupMembers(String(groupIdNum));
                 if (cancelled) return;
 
-                // เช็คว่าคนไหน "ยังไม่มีชื่อ" บ้าง (เพื่อไปโหลดเพิ่ม)
                 const needIds = baseMembers
                     .filter((m: any) => !getDisplayName(m))
                     .map((m: any) => Number(m.id))
@@ -104,32 +99,25 @@ export default function EqualSplitPage() {
 
                 if (needIds.length > 0) {
                     try {
-                        // โหลดข้อมูล User Profile เพิ่มเติมสำหรับคนที่ไม่มีชื่อ
                         const profMap = await fetchUserProfiles(needIds);
                         if (cancelled) return;
 
                         finalMembers = baseMembers.map((m: any) => {
                             const id = Number(m.id);
                             const prof = profMap.get(id);
-                            
-                            // รวมร่างข้อมูล: Profile ใหม่ > ข้อมูลเดิม
-                            // ถ้าหาชื่อไม่ได้จริงๆ สุดท้ายจะใช้ "User #ID"
                             const name = getDisplayName(prof) || getDisplayName(m) || `User #${id}`;
                             const email = prof?.email || m.email || "";
                             const imageUrl = prof?.imageUrl || m.imageUrl || "";
-
                             return { ...m, name, email, imageUrl };
                         });
                     } catch (err) {
-                        console.error("Failed to fetch profiles, using basic info", err);
-                        // ถ้าโหลดเพิ่มพัง ก็ใช้เท่าที่มี แต่พยายาม getDisplayName อีกรอบ
+                        console.error("Failed to fetch profiles", err);
                         finalMembers = baseMembers.map((m: any) => ({
                             ...m,
                             name: getDisplayName(m) || `User #${m.id}`
                         }));
                     }
                 } else {
-                    // ถ้าทุกคนมีชื่ออยู่แล้ว ก็ map ให้มั่นใจว่า field name ถูกต้อง
                     finalMembers = baseMembers.map((m: any) => ({
                         ...m,
                         name: getDisplayName(m) || `User #${m.id}`
@@ -138,7 +126,6 @@ export default function EqualSplitPage() {
 
                 if (!cancelled) {
                     setParticipants(finalMembers);
-                    // Default: เลือกทุกคน
                     setIncludedIds(
                         finalMembers
                             .map((m: any) => Number(m.id))
@@ -168,7 +155,6 @@ export default function EqualSplitPage() {
         );
     };
 
-    // ✅ ใช้ getDisplayName ช่วยแสดงผลด้วย เพื่อความชัวร์
     const labelFor = (p: User) => {
         const name = getDisplayName(p);
         return name || `User #${p.id}`;
@@ -223,32 +209,46 @@ export default function EqualSplitPage() {
         }
 
         const exchangeRatesMap: { [key: string]: number } = { "THB": 1 };
-        
         if (activeCurrency !== "THB" && exchangeRate) {
              exchangeRatesMap[activeCurrency] = parseFloat(exchangeRate);
         }
-        
         otherRates.forEach(r => {
             if (r.currency && r.rate) {
                 exchangeRatesMap[r.currency] = parseFloat(r.rate);
             }
         });
 
+        // ✅ คำนวณยอดหาร จากยอดเงินต้นทาง (amountNum)
+        const numberOfSharers = includedIds.length; 
+        // ใช้ amountNum (ยอด Foreign) หารด้วยจำนวนคน
+        const rawShareValue = amountNum / numberOfSharers; 
+        const shareValue = rawShareValue.toFixed(2); 
+
+        console.group("📊 Split Calculation");
+        console.log(`Original Amount (${activeCurrency}): ${amountNum}`);
+        console.log(`Total Converted (THB): ${amountInThb}`);
+        console.log(`People: ${numberOfSharers}`);
+        console.log(`Per Person Share (${activeCurrency}): ${shareValue}`);
+        console.groupEnd();
+
         setSaving(true);
         try {
             const expensePayload = {
                 groupId: groupIdNum,
                 payerUserId,
-                amount: amountInThb, 
+                amount: amountInThb, // Header เก็บยอด THB (ถูกต้องแล้วสำหรับระบบรวม)
                 title: expenseName.trim(),
                 type: 'EQUAL' as const, 
                 status: 'SETTLED' as const, 
-                exchangeRates: exchangeRatesMap, 
+                ratesJson: exchangeRatesMap, 
             };
+            
+            console.log("🚀 Creating Expense Payload:", expensePayload);
 
             const expense = await createExpenseApi(expensePayload);
             const expenseId = expense.id;
 
+            // Item เก็บยอด Original และ Currency Original
             const ItemName = expense.title;
             const ItemAmount = amount; 
             const itemCurrency = activeCurrency; 
@@ -256,22 +256,23 @@ export default function EqualSplitPage() {
             const createdItem = await createExpenseItem(expenseId, ItemName, ItemAmount, itemCurrency);
             const itemId = createdItem.id;
 
-            const numberOfSharers = includedIds.length;
-            const rawShareValue = amountInThb / numberOfSharers; 
-            const shareValue = rawShareValue.toFixed(2); 
-
+            // ✅ ส่งยอดที่หารแล้ว (ตามสกุลเงินต้นทาง) ไปที่ API
             for (const participantId of includedIds) {
                 await createExpenseItemShare(
                     expenseId, 
                     itemId, 
                     participantId, 
-                    shareValue,
+                    shareValue, // 👈 ส่งยอดหารตามสกุลเงินต้นทาง (e.g., 50 USD)
                     undefined
                 );
             }
 
             const billId = expense?.id ?? expense?.expenseId;
             alert("Expense successfully recorded!");
+            
+            // UI แสดงผลยอดที่ต้องจ่ายต่อคน (ตามสกุลเงินต้นทาง)
+            const displayAmountPerPerson = amountNum / numberOfSharers;
+
             const uiParticipants = participants
                 .filter(p => includedIds.includes(Number(p.id)))
                 .map(p => ({
@@ -279,6 +280,7 @@ export default function EqualSplitPage() {
                     name: labelFor(p),
                     email: p.email,
                     imageUrl: p.imageUrl,
+                    amountOwed: displayAmountPerPerson 
                 }));
 
             navigate(`/bill/${billId}`, {
@@ -371,7 +373,6 @@ export default function EqualSplitPage() {
         reader.onload = (e) => {
             try {
                 const json = JSON.parse(e.target?.result as string);
-                
                 if (typeof json !== 'object' || json === null || Array.isArray(json)) {
                     throw new Error("Invalid JSON format.");
                 }
@@ -397,15 +398,12 @@ export default function EqualSplitPage() {
                 });
 
                 setOtherRates(newOtherRates);
-                
                 if (mainRateSet || newOtherRates.length > 0) {
                     setShowExchangeRateInput(true);
                 }
-
                 if (!mainRateSet && activeCurrency !== "THB") {
                     setExchangeRate("");
                 }
-
             } catch (err: any) {
                 alert(`Error reading file: ${err.message}`);
             }

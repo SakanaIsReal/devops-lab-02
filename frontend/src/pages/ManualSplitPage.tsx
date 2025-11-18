@@ -163,15 +163,16 @@ export default function ManualSplitPage() {
         }
 
         let totalAmountInThb = 0;
-        const itemCalculations: { amountInThb: number, rateNum?: number }[] = [];
         
+        // เก็บข้อมูลเรททั้งหมดเพื่อส่ง JSON ก้อนเดียว
         const exchangeRatesMap: { [key: string]: number } = { "THB": 1 };
 
+        // Loop เพื่อคำนวณยอดรวม THB และรวบรวม Rate
         for (const item of items) {
             const amountNum = parseFloat(item.amount || "0");
             const activeCurrency = getItemCurrency(item);
             let itemAmountInThb = amountNum;
-            let rateNum: number | undefined = undefined;
+            let rateNum: number = 1;
 
             if (activeCurrency !== "THB") {
                 if (!item.showExchangeRateInput) {
@@ -185,59 +186,83 @@ export default function ManualSplitPage() {
                 }
                 itemAmountInThb = amountNum * rateNum;
                 
+                // เก็บ Rate หลักของ Item นี้
                 exchangeRatesMap[activeCurrency] = rateNum;
             }
 
+            // เก็บ Rate ย่อยๆ จาก Rate Manager ของ Item นี้
             item.otherRates.forEach((r: OtherRate) => {
                 if (r.currency && r.rate) {
                     exchangeRatesMap[r.currency] = parseFloat(r.rate);
                 }
             });
-
-            itemCalculations.push({ amountInThb: itemAmountInThb, rateNum: rateNum });
+            
+            // บวกยอดรวมทั้งหมด (เป็น THB) เพื่อสร้าง Expense Header
             totalAmountInThb += itemAmountInThb;
         }
 
         try {
+            // 1. สร้าง Expense Header (ยอดรวมต้องเป็น THB)
             const expensePayload = {
                 groupId: Number(groupId),
                 payerUserId: Number(user.id),
                 title: expenseName,
                 type: "CUSTOM" as const,
-                status: "SETTLED" as const, // ✅ เพิ่ม as const
-                amount: totalAmountInThb,
-                exchangeRates: exchangeRatesMap, 
+                status: "SETTLED" as const,
+                amount: totalAmountInThb, 
+                ratesJson: exchangeRatesMap, 
             };
             
+            console.log("🚀 Creating Expense Payload:", expensePayload);
+
             const expense = await createExpenseApi(expensePayload);
             const expenseId = expense.id;
 
+            // 2. วนลูปสร้าง Item และ Share
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
-                const calculation = itemCalculations[i];
                 const itemCurrency = getItemCurrency(item);
+                const amountNum = parseFloat(item.amount || "0"); // ยอดตามสกุลเงินจริง
 
                 try {
+                    // สร้าง Item (เก็บยอด Original + Currency Original)
                     const createdItem = await createExpenseItem(expenseId, item.name, item.amount, itemCurrency);
                     const itemId = createdItem.id;
 
                     if (item.splitMethod === "equal") {
-                        const shareValue = (
-                            calculation.amountInThb / (item.sharedWith.length + 1)
-                        ).toFixed(2);
+                        // ✅ แก้ไข: หารเท่า คิดจากยอดเงินดิบ (Original Currency)
+                        // จำนวนคน = คนที่ถูกเลือก + คนจ่าย(1)
+                        const numberOfSharers = item.sharedWith.length + 1; 
+                        
+                        // เอา Amount ดิบ หาร จำนวนคน
+                        const rawShareValue = amountNum / numberOfSharers;
+                        const shareValue = rawShareValue.toFixed(2);
+
+                        console.log(`Item "${item.name}": Equal Split (${itemCurrency}). ${amountNum} / ${numberOfSharers} = ${shareValue}`);
 
                         for (const participantId of item.sharedWith) {
-                            await createExpenseItemShare(expenseId, itemId, participantId, shareValue);
+                            await createExpenseItemShare(
+                                expenseId, 
+                                itemId, 
+                                participantId, 
+                                shareValue, // ส่งยอดเงินตามสกุลเงินจริง
+                                undefined
+                            );
                         }
+
                     } else if (item.splitMethod === "percentage") {
+                        // หารเปอร์เซ็นต์ ส่ง % ไป
+                        console.log(`Item "${item.name}": Percentage Split`);
+                        
                         for (const participantId of item.sharedWith) {
                             const sharePercent = item.percentages[participantId]?.toString() || "0";
+                            
                             await createExpenseItemShare(
                                 expenseId,
                                 itemId,
                                 participantId,
                                 undefined, 
-                                sharePercent
+                                sharePercent 
                             );
                         }
                     }

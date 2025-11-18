@@ -69,6 +69,12 @@ const pickName = (u: any): string => {
   return ((typeof direct === 'string' && direct.trim()) || (fromParts && fromParts.trim()) || (typeof nestedDirect === 'string' && nestedDirect.trim()) || '');
 };
 
+const deriveName = (u: any): string => {
+  const direct = u?.name ?? u?.userName ?? u?.username ?? u?.displayName ?? '';
+  const parts = [u?.firstName, u?.lastName].filter(Boolean).join(' ');
+  return (direct || parts || '').toString();
+};
+
 // ============================================================================
 // Authentication & Users
 // ============================================================================
@@ -119,13 +125,11 @@ export const searchUsers = async (query: string): Promise<any[]> => {
     return users;
 };
 
-// ✅ แก้ไขฟังก์ชันนี้: เปลี่ยนจากการยิง Batch (ที่ติด 405) เป็นยิงทีละคน
+// ✅ แก้ไขให้ดึงทีละคน เพื่อเลี่ยง 405 Method Not Allowed
 export const fetchUserProfiles = async (ids: number[]) => {
-  // 1. กรอง ID ซ้ำและค่าที่ไม่ใช่ตัวเลขออก
   const uniqIds = Array.from(new Set(ids.filter((n) => Number.isFinite(n))));
   const userMap = new Map<number, any>();
 
-  // 2. ใช้ Promise.all เพื่อยิง API ดึงข้อมูลทุกคนพร้อมกัน
   await Promise.all(
     uniqIds.map(async (id) => {
       try {
@@ -137,20 +141,11 @@ export const fetchUserProfiles = async (ids: number[]) => {
     })
   );
 
-  // 3. แปลงข้อมูลกลับเป็น Map ที่ Resolve รูปภาพแล้ว
   const out = new Map<number, any>();
   await Promise.all(
     Array.from(userMap.entries()).map(async ([id, p]) => {
       const imageUrl = await resolveImageUrl(p?.avatarUrl ?? p?.imageUrl ?? '');
-      
-      // พยายามหาชื่อจากทุกฟิลด์ที่เป็นไปได้
-      const name = 
-          p?.name || 
-          p?.userName || 
-          p?.username || 
-          p?.displayName || 
-          p?.email?.split('@')[0] || 
-          `User #${id}`;
+      const name = p?.name || p?.userName || p?.username || p?.displayName || p?.email?.split('@')[0] || `User #${id}`;
 
       out.set(id, {
         id,
@@ -197,6 +192,7 @@ export const editUserInformationAcc = async (userId: string | number, formData: 
 // Expense & Bills (Main Logic)
 // ============================================================================
 
+// ✅ แก้ไขให้รับ ratesJson แทน exchangeRates
 export const createExpenseApi = async (expenseData: {
     groupId: number;
     payerUserId: number;
@@ -205,15 +201,29 @@ export const createExpenseApi = async (expenseData: {
     title: string;
     status?: "SETTLED" | "PENDING";
     participants?: number[];
-    exchangeRates?: { [key: string]: number };
+    ratesJson?: { [key: string]: number }; // ✅ เปลี่ยนชื่อ Key ตรงนี้
 }): Promise<any> => {
-    const { exchangeRates, ...bodyData } = expenseData;
+    // 1. แยก ratesJson ออกมา
+    const { ratesJson, ...bodyData } = expenseData;
+
+    // 2. แปลงเป็น String สำหรับ Query Param
+    const ratesJsonString = ratesJson ? JSON.stringify(ratesJson) : JSON.stringify({ "THB": 1 });
+
     const params = {
         currency: "THB", 
-        ratesjson: exchangeRates ? JSON.stringify(exchangeRates) : JSON.stringify({ "THB": 1 })
+        ratesJson: ratesJsonString // query param (ตัวเล็ก)
     };
 
-    const response = await api.post("/expenses", bodyData, {
+    // 3. สร้าง Body ใหม่ (ส่ง ratesJson ไปด้วย เผื่อ Backend อ่านจาก Body)
+    const finalBody = {
+        ...bodyData,
+        ratesJson: ratesJson, // ส่ง object ไปใน body
+        ratesjson: ratesJsonString // ส่ง string ไปใน body (กันเหนียว)
+    };
+
+    console.log("🚀 Sending API Request:", { params, body: finalBody });
+
+    const response = await api.post("/expenses", finalBody, {
         params: params 
     });
     return response.data;
