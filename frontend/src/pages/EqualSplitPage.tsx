@@ -1,5 +1,5 @@
 // src/pages/EqualSplitPage.tsx
-import React, { useEffect, useMemo, useState, useRef } from "react"; // 1. เพิ่ม useRef
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { BottomNav } from "../components/BottomNav";
@@ -14,7 +14,6 @@ import {
 } from "../utils/api";
 import type { User } from "../types";
 
-// ✅ 2. สร้าง Interface สำหรับรายการ Rate ที่เพิ่ม
 interface OtherRate {
     id: number;
     currency: string;
@@ -22,7 +21,6 @@ interface OtherRate {
 }
 
 export default function EqualSplitPage() {
-    // ... (State เดิม)
     const [expenseName, setExpenseName] = useState("");
     const [amount, setAmount] = useState("");
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -33,15 +31,12 @@ export default function EqualSplitPage() {
     const [exchangeRate, setExchangeRate] = useState(""); 
     const [showExchangeRateInput, setShowExchangeRateInput] = useState(false); 
 
-    // ✅ 3. เพิ่ม State ใหม่สำหรับฟีเจอร์นี้
     const [otherRates, setOtherRates] = useState<OtherRate[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
     const navigate = useNavigate();
     const { user } = useAuth(); 
 
-    // ... (ส่วน Logic เดิม: groupIdNum, participants, useEffect, toggleInclude, labelFor, getCurrencySymbol) ...
-    // ... (คัดลอกส่วนนี้มาแปะได้เลย) ...
     const { id: idParam } = useParams<{ id?: string }>();
     const location = useLocation() as {
         state?: { group?: { id?: number | string }; groupId?: number | string };
@@ -60,6 +55,27 @@ export default function EqualSplitPage() {
     const [loadingMembers, setLoadingMembers] = useState<boolean>(false);
     const [membersError, setMembersError] = useState<string | null>(null);
 
+    // ✅ ฟังก์ชันช่วยดึงชื่อ (ปรับปรุงใหม่ ให้หาทุกที่)
+    const getDisplayName = (u: any): string => {
+        if (!u) return "";
+        // 1. หาจากชั้นนอกสุด
+        const directName = u.name || u.userName || u.username || u.displayName || u.fullName;
+        if (directName && typeof directName === 'string' && directName.trim()) return directName;
+
+        // 2. หาจากชั้นใน (เช่น u.user.name หรือ u.profile.userName)
+        const nested = u.user || u.profile || u.account;
+        if (nested) {
+            const nestedName = nested.name || nested.userName || nested.username || nested.displayName || nested.fullName;
+            if (nestedName && typeof nestedName === 'string' && nestedName.trim()) return nestedName;
+        }
+
+        // 3. ถ้าไม่มีชื่อ ให้ลองเอาจาก Email
+        const email = u.email || nested?.email;
+        if (email && typeof email === 'string') return email.split("@")[0];
+
+        return "";
+    };
+
     useEffect(() => {
         let cancelled = false;
 
@@ -75,46 +91,58 @@ export default function EqualSplitPage() {
                     return;
                 }
 
-                const base = await getGroupMembers(String(groupIdNum));
+                const baseMembers = await getGroupMembers(String(groupIdNum));
                 if (cancelled) return;
 
-                const needIds = base
-                    .filter((m) => !(m.name && `${m.name}`.trim()))
-                    .map((m) => Number(m.id))
+                // เช็คว่าคนไหน "ยังไม่มีชื่อ" บ้าง (เพื่อไปโหลดเพิ่ม)
+                const needIds = baseMembers
+                    .filter((m: any) => !getDisplayName(m))
+                    .map((m: any) => Number(m.id))
                     .filter((n) => Number.isFinite(n));
 
-                let members: User[] = base;
-                if (needIds.length) {
+                let finalMembers = baseMembers;
+
+                if (needIds.length > 0) {
                     try {
+                        // โหลดข้อมูล User Profile เพิ่มเติมสำหรับคนที่ไม่มีชื่อ
                         const profMap = await fetchUserProfiles(needIds);
                         if (cancelled) return;
-                        members = base.map((m: any) => {
+
+                        finalMembers = baseMembers.map((m: any) => {
                             const id = Number(m.id);
                             const prof = profMap.get(id);
-                            return {
-                                ...m,
-                                name:
-                                    prof?.name ||
-                                    m.name ||
-                                    (m.email?.split("@")[0] ?? `User #${id}`),
-                                email: prof?.email || m.email || "",
-                                imageUrl: prof?.imageUrl || m.imageUrl || "",
-                            };
+                            
+                            // รวมร่างข้อมูล: Profile ใหม่ > ข้อมูลเดิม
+                            // ถ้าหาชื่อไม่ได้จริงๆ สุดท้ายจะใช้ "User #ID"
+                            const name = getDisplayName(prof) || getDisplayName(m) || `User #${id}`;
+                            const email = prof?.email || m.email || "";
+                            const imageUrl = prof?.imageUrl || m.imageUrl || "";
+
+                            return { ...m, name, email, imageUrl };
                         });
-                    } catch {
-                        members = base.map((m: any) => ({
+                    } catch (err) {
+                        console.error("Failed to fetch profiles, using basic info", err);
+                        // ถ้าโหลดเพิ่มพัง ก็ใช้เท่าที่มี แต่พยายาม getDisplayName อีกรอบ
+                        finalMembers = baseMembers.map((m: any) => ({
                             ...m,
-                            name: m.name || (m.email?.split("@")[0] ?? `User #${m.id}`),
+                            name: getDisplayName(m) || `User #${m.id}`
                         }));
                     }
+                } else {
+                    // ถ้าทุกคนมีชื่ออยู่แล้ว ก็ map ให้มั่นใจว่า field name ถูกต้อง
+                    finalMembers = baseMembers.map((m: any) => ({
+                        ...m,
+                        name: getDisplayName(m) || `User #${m.id}`
+                    }));
                 }
 
                 if (!cancelled) {
-                    setParticipants(members);
+                    setParticipants(finalMembers);
+                    // Default: เลือกทุกคน
                     setIncludedIds(
-                        members
+                        finalMembers
                             .map((m: any) => Number(m.id))
-                            .filter((n) => Number.isFinite(n))
+                            .filter((n: number) => Number.isFinite(n))
                     );
                 }
             } catch (e: any) {
@@ -140,12 +168,11 @@ export default function EqualSplitPage() {
         );
     };
 
-    const labelFor = (p: User) =>
-        (p.name && p.name.trim()) ||
-        (p as any).username ||
-        (p as any).userName ||
-        (p.email ? p.email.split("@")[0] : "") ||
-        `User #${p.id}`;
+    // ✅ ใช้ getDisplayName ช่วยแสดงผลด้วย เพื่อความชัวร์
+    const labelFor = (p: User) => {
+        const name = getDisplayName(p);
+        return name || `User #${p.id}`;
+    };
 
     const getCurrencySymbol = (curr: string): string => {
         switch (curr.toUpperCase()) {
@@ -155,8 +182,6 @@ export default function EqualSplitPage() {
             default: return curr.toUpperCase();
         }
     };
-    
-    // ... (สิ้นสุดส่วน Logic เดิม) ...
 
     const getActiveCurrency = (): string => {
         if (currency === "CUSTOM" && customCurrency.trim() !== "") {
@@ -165,7 +190,6 @@ export default function EqualSplitPage() {
         return currency;
     };
 
-    // ... (handleSubmit ไม่เปลี่ยนแปลง) ...
     const handleSubmit = async () => {
         if (!groupIdNum) { alert("ไม่พบ groupId"); return; }
 
@@ -181,19 +205,15 @@ export default function EqualSplitPage() {
         let amountInThb = amountNum;
         let rateNum: number | undefined = undefined;
 
-        // --- Logic ตรวจสอบและคำนวณเรท ---
         if (activeCurrency !== "THB") {
-            
             if (!showExchangeRateInput) {
                 alert("กรุณาติ๊ก 'Set Exchange Rate' เพื่อกำหนดอัตราแลกเปลี่ยน");
                 return;
             }
-            
             if (currency === "CUSTOM" && !activeCurrency) {
                  alert("กรุณาระบุรหัสสกุลเงิน (e.g., EUR)");
                  return;
             }
-
             rateNum = Number(exchangeRate);
             if (!Number.isFinite(rateNum) || rateNum <= 0) {
                 alert("กรุณาระบุ Exchange Rate ให้ถูกต้อง (ต้องมากกว่า 0)");
@@ -201,30 +221,45 @@ export default function EqualSplitPage() {
             }
             amountInThb = amountNum * rateNum; 
         }
-        // --- สิ้นสุด Logic ใหม่ ---
+
+        const exchangeRatesMap: { [key: string]: number } = { "THB": 1 };
+        
+        if (activeCurrency !== "THB" && exchangeRate) {
+             exchangeRatesMap[activeCurrency] = parseFloat(exchangeRate);
+        }
+        
+        otherRates.forEach(r => {
+            if (r.currency && r.rate) {
+                exchangeRatesMap[r.currency] = parseFloat(r.rate);
+            }
+        });
 
         setSaving(true);
         try {
-            // ... (ส่วนที่เหลือของ handleSubmit เหมือนเดิม) ...
             const expensePayload = {
                 groupId: groupIdNum,
                 payerUserId,
                 amount: amountInThb, 
                 title: expenseName.trim(),
                 type: 'EQUAL' as const, 
-                status: 'SETTLED', 
-                ...(rateNum !== undefined && { exchangeRate: rateNum }), 
+                status: 'SETTLED' as const, 
+                exchangeRates: exchangeRatesMap, 
             };
+
             const expense = await createExpenseApi(expensePayload);
             const expenseId = expense.id;
+
             const ItemName = expense.title;
             const ItemAmount = amount; 
             const itemCurrency = activeCurrency; 
+            
             const createdItem = await createExpenseItem(expenseId, ItemName, ItemAmount, itemCurrency);
             const itemId = createdItem.id;
+
             const numberOfSharers = includedIds.length;
             const rawShareValue = amountInThb / numberOfSharers; 
             const shareValue = rawShareValue.toFixed(2); 
+
             for (const participantId of includedIds) {
                 await createExpenseItemShare(
                     expenseId, 
@@ -234,6 +269,7 @@ export default function EqualSplitPage() {
                     undefined
                 );
             }
+
             const billId = expense?.id ?? expense?.expenseId;
             alert("Expense successfully recorded!");
             const uiParticipants = participants
@@ -244,6 +280,7 @@ export default function EqualSplitPage() {
                     email: p.email,
                     imageUrl: p.imageUrl,
                 }));
+
             navigate(`/bill/${billId}`, {
                 state: {
                     bill: {
@@ -272,9 +309,6 @@ export default function EqualSplitPage() {
 
     const handleBack = () => navigate(-1);
 
-    // --- ✅ 4. เพิ่ม Handlers ใหม่ทั้งหมด ---
-
-    // 4.1. เพิ่มแถวใหม่
     const handleAddRate = () => {
         setOtherRates([
             ...otherRates,
@@ -282,7 +316,6 @@ export default function EqualSplitPage() {
         ]);
     };
 
-    // 4.2. อัปเดตแถว
     const handleOtherRateChange = (id: number, field: 'currency' | 'rate', value: string) => {
         setOtherRates(otherRates.map(r => 
             r.id === id 
@@ -291,24 +324,18 @@ export default function EqualSplitPage() {
         ));
     };
 
-    // 4.3. ลบแถว
     const handleRemoveRate = (id: number) => {
         setOtherRates(otherRates.filter(r => r.id !== id));
     };
 
-    // 4.4. ดาวน์โหลด
     const handleDownload = () => {
         const activeCurrency = getActiveCurrency();
-        
-        // เราจะใช้ Format {"USD": 36.5, "JPY": 0.25} ซึ่งเป็น JSON Standard
         const ratesToDownload: {[key: string]: number} = {};
 
-        // เพิ่มเรทหลัก (ถ้ามี)
         if (activeCurrency !== "THB" && exchangeRate) {
             ratesToDownload[activeCurrency] = parseFloat(exchangeRate);
         }
 
-        // เพิ่มเรทอื่นๆ
         otherRates.forEach(r => {
             if (r.currency && r.rate) {
                 ratesToDownload[r.currency] = parseFloat(r.rate);
@@ -332,12 +359,10 @@ export default function EqualSplitPage() {
         URL.revokeObjectURL(url);
     };
 
-    // 4.5. สั่งคลิกปุ่ม Upload
     const handleUploadClick = () => {
         fileInputRef.current?.click();
     };
 
-    // 4.6. เมื่อไฟล์ถูกเลือก
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -347,9 +372,8 @@ export default function EqualSplitPage() {
             try {
                 const json = JSON.parse(e.target?.result as string);
                 
-                // ตรวจสอบว่าไฟล์เป็น Object (เช่น {"USD": 36.5})
                 if (typeof json !== 'object' || json === null || Array.isArray(json)) {
-                    throw new Error("Invalid JSON format. Must be an object like {\"USD\": 36.5}");
+                    throw new Error("Invalid JSON format.");
                 }
 
                 const activeCurrency = getActiveCurrency();
@@ -360,12 +384,10 @@ export default function EqualSplitPage() {
                     const rate = String(json[key]);
                     const curr = key.toUpperCase();
 
-                    // ถ้าสกุลเงินในไฟล์ ตรงกับสกุลเงินหลักที่เลือก -> ใส่ในช่องหลัก
                     if (curr === activeCurrency) {
                         setExchangeRate(rate);
                         mainRateSet = true;
                     } else {
-                    // ถ้าไม่ตรง -> ใส่ใน "Other Rates"
                         newOtherRates.push({
                             id: Date.now() + index,
                             currency: curr,
@@ -376,12 +398,10 @@ export default function EqualSplitPage() {
 
                 setOtherRates(newOtherRates);
                 
-                // ถ้ามีเรทในไฟล์ (ไม่ว่าจะหลักหรือรอง) ให้ติ๊ก Checkbox อัตโนมัติ
                 if (mainRateSet || newOtherRates.length > 0) {
                     setShowExchangeRateInput(true);
                 }
 
-                // ถ้าสกุลเงินหลัก (เช่น USD) ไม่ได้อยู่ในไฟล์ JSON ให้เคลียร์ช่องหลัก
                 if (!mainRateSet && activeCurrency !== "THB") {
                     setExchangeRate("");
                 }
@@ -391,16 +411,11 @@ export default function EqualSplitPage() {
             }
         };
         reader.readAsText(file);
-
-        // เคลียร์ค่า input เพื่อให้อัปโหลดไฟล์ชื่อเดิมซ้ำได้
         event.target.value = '';
     };
 
-    // --- ✅ 5. อัปเดต UI (JSX) ---
     return (
         <div className="min-h-screen bg-white flex flex-col">
-            {/* ... (Navbar, CircleBack, Headers, Expense Name, Total Amount) ... */}
-            {/* ... (คัดลอกส่วนนี้มาแปะได้เลย) ... */}
             <Navbar />
             <div className="flex-1 overflow-y-auto pt-4 pb-20 px-4 sm:px-6">
                 <CircleBackButton
@@ -418,6 +433,7 @@ export default function EqualSplitPage() {
                     </p>
                 </div>
 
+                {/* Expense Name */}
                 <label className="block text-gray-700 font-medium mb-2">
                     Expense Name
                 </label>
@@ -429,6 +445,7 @@ export default function EqualSplitPage() {
                     className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
+                {/* Total Amount */}
                 <label className="block text-gray-700 font-medium mb-2">
                     Total Amount
                 </label>
@@ -439,9 +456,8 @@ export default function EqualSplitPage() {
                     placeholder="Enter expense total"
                     className="w-full p-3 mb-4 border-none rounded-xl bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-            {/* ... (สิ้นสุดส่วนที่คัดลอก) ... */}
 
-                {/* --- 🔽 UI Currency (เหมือนเดิม) 🔽 --- */}
+                {/* Currency Selector */}
                 <label className="block text-gray-700 font-medium mb-2">
                     Currency
                 </label>
@@ -506,9 +522,8 @@ export default function EqualSplitPage() {
                         />
                     )}
                 </div>
-                {/* --- 🔼 สิ้นสุด UI Currency 🔼 --- */}
 
-                {/* --- 🔽 Checkbox (เหมือนเดิม) 🔽 --- */}
+                {/* Checkbox */}
                 {currency !== "THB" && (
                     <div className="mb-4">
                         <label className="flex items-center gap-2 cursor-pointer">
@@ -530,11 +545,10 @@ export default function EqualSplitPage() {
                     </div>
                 )}
                 
-                {/* --- 🔽 Exchange Rate Input และ UI ใหม่ 🔽 --- */}
-                {/* โชว์เมื่อ Checkbox ถูกติ๊ก */}
+                {/* Rate Manager UI */}
                 {showExchangeRateInput && (
                     <div className="p-4 border rounded-xl bg-gray-50 mb-4">
-                        {/* 1. Input หลัก */}
+                        {/* Input หลัก */}
                         <div className="mb-4">
                             <label className="block text-gray-700 font-medium mb-2">
                                 Exchange Rate (1 {getActiveCurrency()} = ? THB)
@@ -554,7 +568,7 @@ export default function EqualSplitPage() {
                             Rate Manager
                         </h3>
                         
-                        {/* 2. รายการ Rate อื่นๆ */}
+                        {/* รายการ Rate อื่นๆ */}
                         <div className="space-y-3 mb-4">
                             {otherRates.map((item) => (
                                 <div key={item.id} className="flex items-center gap-2">
@@ -584,7 +598,7 @@ export default function EqualSplitPage() {
                             ))}
                         </div>
 
-                        {/* 3. ปุ่ม Add */}
+                        {/* ปุ่ม Add */}
                         <button
                             type="button"
                             onClick={handleAddRate}
@@ -593,7 +607,7 @@ export default function EqualSplitPage() {
                             Add Other Rate
                         </button>
                         
-                        {/* 4. ปุ่ม Download / Upload */}
+                        {/* ปุ่ม Download / Upload */}
                         <div className="flex gap-3">
                             <button
                                 type="button"
@@ -609,7 +623,7 @@ export default function EqualSplitPage() {
                             >
                                 Upload
                             </button>
-                            {/* 5. File Input ที่ซ่อนอยู่ */}
+                            {/* File Input ที่ซ่อนอยู่ */}
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -620,12 +634,9 @@ export default function EqualSplitPage() {
                         </div>
                     </div>
                 )}
-                {/* --- 🔼 สิ้นสุด Exchange Rate Input 🔼 --- */}
 
-
-                {/* Select Participants (เหมือนเดิม) */}
+                {/* Select Participants */}
                 <div className="mb-6">
-                    {/* ... (Code เดิม) ... */}
                     <button
                         type="button"
                         onClick={() => setPickerOpen(!pickerOpen)}
@@ -643,8 +654,7 @@ export default function EqualSplitPage() {
                                 <p className="text-sm text-gray-500">Loading participants…</p>
                             ) : membersError ? (
                                 <p className="text-sm text-red-600">{membersError}</p>
-                            ) : participants.length === 0 ?
-(
+                            ) : participants.length === 0 ? (
                                 <p className="text-sm text-gray-500">No participants.</p>
                             ) : (
                                 participants.map((p) => {
@@ -669,7 +679,7 @@ export default function EqualSplitPage() {
                     )}
                 </div>
 
-                {/* Finish Button (เหมือนเดิม) */}
+                {/* Finish Button */}
                 <button
                     type="button"
                     onClick={handleSubmit}
