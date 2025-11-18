@@ -895,7 +895,7 @@ class ExpenseControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> create with custom rates (USD) converts amount and saves rates")
+    @DisplayName("POST /api/expenses -> create with custom rates (USD) converts amount and merges live rates")
     void create_with_custom_rates_usd_success() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
@@ -905,13 +905,20 @@ class ExpenseControllerTest {
             return arg;
         });
 
+        // live FX มีหลายสกุล
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "EUR", new BigDecimal("40.00"),
+                "JPY", new BigDecimal("0.300")
+        ));
+
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("123.45"),
                 ExpenseType.EQUAL, "Dinner", ExpenseStatus.OPEN, null);
 
         String ratesJson = objectMapper.writeValueAsString(Map.of(
-                "THB", BigDecimal.ONE,
-                "USD", new BigDecimal("36.25"),
-                "JPY", new BigDecimal("0.245")
+                "THB", BigDecimal.ONE,                       // override (จริง ๆ เท่ากับอยู่แล้ว)
+                "USD", new BigDecimal("36.25"),             // override live USD
+                "JPY", new BigDecimal("0.245")              // override live JPY
         ));
 
         mockMvc.perform(
@@ -923,20 +930,27 @@ class ExpenseControllerTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(301))
-                .andExpect(jsonPath("$.amount").value(4475.06))
+                .andExpect(jsonPath("$.amount").value(4475.06)) // 123.45 * 36.25
                 .andExpect(jsonPath("$.groupId").value(10))
                 .andExpect(jsonPath("$.payerUserId").value(20));
 
-        verify(fx, never()).getLiveRatesToThb();
+        verify(fx, times(1)).getLiveRatesToThb();
 
         ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
         verify(expenses).save(cap.capture());
         String savedRates = cap.getValue().getExchangeRatesJson();
-        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
+
+        // THB:1 มีแน่
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"THB\":1");
+        // custom override
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25");
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"JPY\":0.245");
+        // live ที่ไม่ได้ override ยังคงอยู่
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"EUR\":40.00");
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> create with custom rates (THB currency) keeps amount unchanged")
+    @DisplayName("POST /api/expenses -> create with custom rates (THB currency) keeps amount unchanged and merges live rates")
     void create_with_custom_rates_thb_success() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
@@ -945,6 +959,12 @@ class ExpenseControllerTest {
             arg.setId(302L);
             return arg;
         });
+
+        // live FX (มีอย่างน้อย THB + EUR)
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "EUR", new BigDecimal("40.00")
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("500.00"),
                 ExpenseType.EQUAL, "Market", ExpenseStatus.OPEN, null);
@@ -962,20 +982,32 @@ class ExpenseControllerTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(302))
+                // currency = THB → ไม่แปลง
                 .andExpect(jsonPath("$.amount").value(500.00));
 
-        verify(fx, never()).getLiveRatesToThb();
+        verify(fx, times(1)).getLiveRatesToThb();
 
         ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
         verify(expenses).save(cap.capture());
-        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"THB\":1");
+        String savedRates = cap.getValue().getExchangeRatesJson();
+
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"THB\":1");
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25");
+        // live อื่น ๆ ยังอยู่
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"EUR\":40.00");
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> custom rates missing rate for specified currency -> 400")
+    @DisplayName("POST /api/expenses -> custom rates missing rate for specified currency -> 400 (even after merge)")
     void create_with_custom_rates_missing_currency_rate_400() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
+
+        // live FX ไม่มี USD เลย
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "EUR", new BigDecimal("39.90")
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
                 ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
@@ -987,15 +1019,15 @@ class ExpenseControllerTest {
 
         mockMvc.perform(
                         post("/api/expenses")
-                                .param("currency", "USD")
-                                .param("ratesJson", ratesJson)
+                                .param("currency", "USD")              // ขอใช้ USD
+                                .param("ratesJson", ratesJson)         // ไม่มี USD ทั้งใน live และ custom
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(in))
                 )
                 .andExpect(status().isBadRequest());
 
         verify(expenses, never()).save(any());
-        verify(fx, never()).getLiveRatesToThb();
+        verify(fx, times(1)).getLiveRatesToThb();
     }
 
     @Test
@@ -1003,6 +1035,11 @@ class ExpenseControllerTest {
     void create_with_custom_rates_invalid_json_400() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
+
+        // เผื่อโค้ดไปเรียก live ก่อน parse JSON
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
                 ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
@@ -1017,7 +1054,7 @@ class ExpenseControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(expenses, never()).save(any());
-        verify(fx, never()).getLiveRatesToThb();
+        // ไม่บังคับว่าจะเรียก fx หรือไม่ (แล้วแต่ implementation)
     }
 
     @Test
@@ -1025,6 +1062,10 @@ class ExpenseControllerTest {
     void create_with_custom_rates_non_numeric_rate_400() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
+
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
                 ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
@@ -1041,7 +1082,6 @@ class ExpenseControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(expenses, never()).save(any());
-        verify(fx, never()).getLiveRatesToThb();
     }
 
     @Test
@@ -1049,6 +1089,10 @@ class ExpenseControllerTest {
     void create_with_custom_rates_non_positive_rate_400() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
+
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
                 ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
@@ -1068,7 +1112,7 @@ class ExpenseControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> custom rates with lowercase keys are normalized to uppercase")
+    @DisplayName("POST /api/expenses -> custom rates with lowercase keys are normalized to uppercase and merged")
     void create_with_custom_rates_lowercase_keys_ok() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
@@ -1077,6 +1121,13 @@ class ExpenseControllerTest {
             arg.setId(303L);
             return arg;
         });
+
+        // live FX (USD จาก live จะถูก override)
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "USD", new BigDecimal("30.00"),    // จะโดนทับด้วย 36.25
+                "EUR", new BigDecimal("40.00")
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("10.00"),
                 ExpenseType.EQUAL, "Snack", ExpenseStatus.OPEN, null);
@@ -1092,15 +1143,20 @@ class ExpenseControllerTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(303))
-                .andExpect(jsonPath("$.amount").value(362.50));
+                .andExpect(jsonPath("$.amount").value(362.50)); // 10 * 36.25
+
+        verify(fx, times(1)).getLiveRatesToThb();
 
         ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
         verify(expenses).save(cap.capture());
-        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"USD\":36.25").contains("\"THB\":1");
+        String savedRates = cap.getValue().getExchangeRatesJson();
+
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"EUR\":40.00"); // จาก live
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> custom rates without THB should add THB:1 automatically")
+    @DisplayName("POST /api/expenses -> custom rates without THB should add THB:1 automatically (and merge live)")
     void create_with_custom_rates_adds_thb_default() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
@@ -1109,6 +1165,11 @@ class ExpenseControllerTest {
             arg.setId(304L);
             return arg;
         });
+
+        when(fx.getLiveRatesToThb()).thenReturn(Map.of(
+                "THB", BigDecimal.ONE,
+                "USD", new BigDecimal("30.00")
+        ));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("1.00"),
                 ExpenseType.EQUAL, "Tip", ExpenseStatus.OPEN, null);
@@ -1126,14 +1187,18 @@ class ExpenseControllerTest {
                 .andExpect(jsonPath("$.id").value(304))
                 .andExpect(jsonPath("$.amount").value(36.25));
 
+        verify(fx, times(1)).getLiveRatesToThb();
+
         ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
         verify(expenses).save(cap.capture());
-        org.assertj.core.api.Assertions.assertThat(cap.getValue().getExchangeRatesJson()).contains("\"THB\":1");
+        String savedRates = cap.getValue().getExchangeRatesJson();
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"THB\":1");
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25");
     }
 
     @Test
-    @DisplayName("POST /api/expenses -> custom rates provided: should not call live FX even if live would fail")
-    void create_with_custom_rates_ignores_live_fx_even_if_live_fails() throws Exception {
+    @DisplayName("POST /api/expenses -> custom rates still applied even if live FX fails")
+    void create_with_custom_rates_live_fx_failure_fallback() throws Exception {
         when(groups.get(10L)).thenReturn(g);
         when(users.get(20L)).thenReturn(payer);
         when(expenses.save(any(Expense.class))).thenAnswer(inv -> {
@@ -1141,7 +1206,9 @@ class ExpenseControllerTest {
             arg.setId(305L);
             return arg;
         });
-        when(fx.getLiveRatesToThb()).thenThrow(new RuntimeException("should not be called"));
+
+        // live FX ล่ม แต่เรายังใช้ custom rates ได้
+        when(fx.getLiveRatesToThb()).thenThrow(new RuntimeException("FX down"));
 
         var in = new ExpenseDto(null, 10L, 20L, new BigDecimal("2.00"),
                 ExpenseType.EQUAL, "Water", ExpenseStatus.OPEN, null);
@@ -1157,9 +1224,14 @@ class ExpenseControllerTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(305))
-                .andExpect(jsonPath("$.amount").value(72.50));
+                .andExpect(jsonPath("$.amount").value(72.50)); // 2 * 36.25
 
-        verify(fx, never()).getLiveRatesToThb();
+        verify(fx, times(1)).getLiveRatesToThb();
+
+        ArgumentCaptor<Expense> cap = ArgumentCaptor.forClass(Expense.class);
+        verify(expenses).save(cap.capture());
+        String savedRates = cap.getValue().getExchangeRatesJson();
+        org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
     }
 
     @Test
@@ -1188,7 +1260,7 @@ class ExpenseControllerTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(306))
-                .andExpect(jsonPath("$.amount").value(108.75));
+                .andExpect(jsonPath("$.amount").value(108.75)); // 3 * 36.25
 
         verify(fx, times(1)).getLiveRatesToThb();
 
@@ -1197,5 +1269,6 @@ class ExpenseControllerTest {
         String savedRates = cap.getValue().getExchangeRatesJson();
         org.assertj.core.api.Assertions.assertThat(savedRates).contains("\"USD\":36.25").contains("\"THB\":1");
     }
+
 
 }
