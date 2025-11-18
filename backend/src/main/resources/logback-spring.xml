@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true">
+
+    <springProperty scope="context" name="appName"  source="spring.application.name" defaultValue="smartsplit-back"/>
+    <springProperty scope="context" name="lokiUrl"  source="LOGGING_LOKI_URL"        defaultValue="http://loki:3100/loki/api/v1/push"/>
+    <springProperty scope="context" name="lokiOn"   source="LOGGING_LOKI_ENABLED"    defaultValue="true"/>
+
+    <!-- Console -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}- %X{spanId:-}] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- โหมดปิด Loki -->
+    <if condition='property("lokiOn").equalsIgnoreCase("false")'>
+        <then>
+            <root level="INFO">
+                <appender-ref ref="CONSOLE"/>
+            </root>
+            <logger name="org.springframework" level="INFO"/>
+            <logger name="org.hibernate"     level="WARN"/>
+        </then>
+    </if>
+
+    <!-- โหมดเปิด Loki -->
+    <if condition='!property("lokiOn").equalsIgnoreCase("false")'>
+        <then>
+            <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+                <http>
+                    <url>${lokiUrl}</url>
+                    <connectionTimeoutMs>5000</connectionTimeoutMs>
+                    <requestTimeoutMs>10000</requestTimeoutMs>
+                </http>
+
+                <!-- ใช้ JsonEncoder: ระบุรูปแบบข้อความ + labels ที่นี่ -->
+                <encoder class="com.github.loki4j.logback.JsonEncoder">
+                    <messagePattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSX} [%thread] %-5level [%X{traceId:-}- %X{spanId:-}] %logger{36} - %msg%nopex</messagePattern>
+                    <staticLabels>app=${appName},host=${HOSTNAME}</staticLabels>
+                    <labels>level=%level,logger=%logger{20}</labels>
+                </encoder>
+
+                <!-- ตัวเลือก batch/queue ใช้พร็อพเพอร์ตีรายตัว (ไม่ใช่บล็อก <batch>) -->
+                <sendQueueSize>8192</sendQueueSize>
+                <batchMaxBytes>1048576</batchMaxBytes>
+                <batchTimeoutMs>2000</batchTimeoutMs>
+            </appender>
+
+            <!-- ส่งแบบ async และไม่บล็อก -->
+            <appender name="LOKI_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+                <appender-ref ref="LOKI"/>
+                <queueSize>8192</queueSize>
+                <discardingThreshold>0</discardingThreshold>
+                <neverBlock>true</neverBlock>
+            </appender>
+
+            <root level="INFO">
+                <appender-ref ref="CONSOLE"/>
+                <appender-ref ref="LOKI_ASYNC"/>
+            </root>
+
+            <logger name="org.springframework" level="INFO"/>
+            <logger name="org.hibernate"     level="WARN"/>
+        </then>
+    </if>
+
+</configuration>
