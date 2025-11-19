@@ -2,7 +2,7 @@ const { defineConfig } = require("cypress");
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: process.env.CYPRESS_BASE_URL || 'http://localhost:3003/', // URL where frontend is running
+    baseUrl: process.env.CYPRESS_BASE_URL || 'http://localhost:3000/', // URL where frontend is running
     video: true,
     screenshotOnRunFailure: true,
     viewportWidth: 1440,
