@@ -30,10 +30,10 @@ public class User {
     @Column(length = 30)
     private String phone;
 
-    @Column(name = "avatar_url", length = 500)
+    @Column(name = "avatar_url", columnDefinition = "MEDIUMTEXT")
     private String avatarUrl;
 
-    @Column(name = "qr_code_url", length = 500)
+    @Column(name = "qr_code_url", columnDefinition = "MEDIUMTEXT")
     private String qrCodeUrl;
 
     @Column(name = "role", nullable = false)

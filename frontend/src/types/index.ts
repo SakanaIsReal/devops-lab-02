@@ -5,6 +5,8 @@ export interface User {
     phone: string;
     imageUrl: string;
     qrCodeUrl : string;
+    firstName?: string;
+    lastName?: string;
 }
 
 export interface AuthContextType {
@@ -52,6 +54,8 @@ export interface UserUpdateForm {
     phone: string ;
     avatar: File | string ;
     qr: File | string ;
+    firstName?: string;
+    lastName?: string;
 }
 
 export interface Expense {

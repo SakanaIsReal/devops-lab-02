@@ -64,10 +64,15 @@ public class FileStorageService {
             if (publicUrl == null || publicUrl.isBlank()) return false;
             if (publicUrl.startsWith("data:")) return true;
 
-            int idx = publicUrl.indexOf("/files/");
-            if (idx < 0) return false;
+            // Support both /api/files/ and /files/ for backwards compatibility
+            int idx = publicUrl.indexOf("/api/files/");
+            if (idx < 0) {
+                idx = publicUrl.indexOf("/files/");
+                if (idx < 0) return false;
+            }
 
-            String tail = publicUrl.substring(idx + "/files/".length());
+            String prefix = publicUrl.contains("/api/files/") ? "/api/files/" : "/files/";
+            String tail = publicUrl.substring(publicUrl.indexOf(prefix) + prefix.length());
             int q = tail.indexOf('?');
             if (q >= 0) tail = tail.substring(0, q);
             int slash = tail.indexOf('/');
@@ -90,7 +95,7 @@ public class FileStorageService {
         int port = uri.getPort();
         String portPart = (port == -1 || ("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443))
                 ? "" : ":" + port;
-        return scheme + "://" + host + portPart + "/files/" + id;
+        return scheme + "://" + host + portPart + "/api/files/" + id;
     }
 
     private String getExtension(String name) {

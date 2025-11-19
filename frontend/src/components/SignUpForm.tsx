@@ -8,10 +8,12 @@ import { useAuth } from "../contexts/AuthContext";
 
 export const SignUpForm: React.FC = () => {
   const [formData, setFormData] = useState({
-    userName: "", // Changed from firstName/lastName to userName
+    userName: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
-    phone: "", // Added phone field
+    phone: "",
     confirmPassword: "", // Only for client-side validation
   });
   const [error, setError] = useState<string | null>(null);
@@ -43,17 +45,24 @@ export const SignUpForm: React.FC = () => {
     }
 
     try {
-      // Only send the fields that the API expects
-      await signUpApi(formData.userName, formData.email, formData.password, formData.phone);
-      
+      // Send all fields including firstName and lastName
+      await signUpApi(
+        formData.userName,
+        formData.email,
+        formData.password,
+        formData.phone,
+        formData.firstName,
+        formData.lastName
+      );
+
       // Log in with the new credentials
       await login(formData.email, formData.password);
-      
+
       // Navigate after successful signup and login
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 50);
-      
+
     } catch (err) {
       setError(
         "Register failed try change another username or email"
@@ -84,6 +93,26 @@ export const SignUpForm: React.FC = () => {
         placeholder="johndoe"
         disabled={isLoading}
         required
+      />
+
+      <Input
+        label="First Name"
+        type="text"
+        name="firstName"
+        value={formData.firstName}
+        onChange={handleInputChange}
+        placeholder="John"
+        disabled={isLoading}
+      />
+
+      <Input
+        label="Last Name"
+        type="text"
+        name="lastName"
+        value={formData.lastName}
+        onChange={handleInputChange}
+        placeholder="Doe"
+        disabled={isLoading}
       />
 
       <Input

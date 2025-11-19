@@ -206,7 +206,7 @@ const PayPage: React.FC = () => {
         <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-6 text-center">
           {/* Payment Summary */}
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-lg font-semibold mb-2">Payer: {paymentDetails.payerName}</p>
+            <p className="text-lg font-semibold mb-2">Pay To: {paymentDetails.payerName}</p>
             <p className="text-sm text-gray-600">Owed Amount: ${paymentDetails.owedAmount?.toFixed(2)}</p>
             <p className="text-sm text-gray-600">Already Paid: ${paymentDetails.paidAmount?.toFixed(2)}</p>
             <p className="text-xl font-bold mt-2" style={{color: '#0d78f2'}}>
@@ -307,7 +307,9 @@ const PayPage: React.FC = () => {
           {/* Current User Info */}
           {currentUser && (
             <p className="text-xs text-gray-500 mt-4">
-              Paying as: {currentUser.name} ({currentUser.email})
+              Paying as: {currentUser.firstName && currentUser.lastName
+                ? `${currentUser.firstName} ${currentUser.lastName}`
+                : currentUser.name} ({currentUser.email})
             </p>
           )}
         </div>

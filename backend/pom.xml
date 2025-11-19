@@ -29,6 +29,7 @@
     <properties>
         <java.version>17</java.version>
         <testcontainers.version>1.20.3</testcontainers.version>
+        <argLine></argLine>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -210,20 +211,25 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.11</version>
                 <executions>
+
                     <execution>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
+
                     </execution>
+
+
                     <execution>
                         <id>report</id>
-                        <phase>test</phase>
+                        <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
                     </execution>
                 </executions>
             </plugin>
+
 
             <!-- Integration tests: จับไฟล์ชื่อ *IT.java -->
             <plugin>
@@ -241,11 +247,41 @@
                                 <include>**/*IT.java</include>
                             </includes>
                             <useModulePath>false</useModulePath>
+
+
+                            <argLine>${argLine}</argLine>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
         </plugins>
     </build>
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-report-plugin</artifactId>
+                <version>3.2.5</version>
+                <reportSets>
+                    <!-- report ของ unit tests -->
+                    <reportSet>
+                        <id>unit-tests</id>
+                        <reports>
+                            <report>report-only</report>
+                        </reports>
+                    </reportSet>
+
+                    <!-- report ของ integration tests (Failsafe) -->
+                    <reportSet>
+                        <id>integration-tests</id>
+                        <reports>
+                            <report>failsafe-report-only</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+        </plugins>
+    </reporting>
+
 
 </project>
