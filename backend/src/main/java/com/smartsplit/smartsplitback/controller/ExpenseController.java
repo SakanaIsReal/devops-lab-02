@@ -134,29 +134,45 @@ public class ExpenseController {
 
         Map<String, BigDecimal> rates;
 
-
         if (ratesJson != null && !ratesJson.isBlank()) {
+
+            Map<String, BigDecimal> baseRates;
+            try {
+                baseRates = fx.getLiveRatesToThb();
+            } catch (Exception ex) {
+
+                baseRates = new HashMap<>();
+                baseRates.put("THB", BigDecimal.ONE);
+            }
+
             try {
                 var node = objectMapper.readTree(ratesJson);
-                if (!node.isObject()) throw new IllegalArgumentException("ratesJson must be an object");
-                Map<String, BigDecimal> tmp = new HashMap<>();
+                if (!node.isObject()) {
+                    throw new IllegalArgumentException("ratesJson must be an object");
+                }
+
+                Map<String, BigDecimal> merged = new HashMap<>(baseRates);
                 var fields = node.fields();
                 while (fields.hasNext()) {
                     var f = fields.next();
                     String ccy = f.getKey().toUpperCase(Locale.ROOT);
-                    if (!f.getValue().canConvertToExactIntegral() && !f.getValue().isNumber()) {
+                    if (!f.getValue().isNumber() && !f.getValue().canConvertToExactIntegral()) {
                         throw new IllegalArgumentException("rate for " + ccy + " must be numeric");
                     }
                     BigDecimal v = f.getValue().decimalValue();
                     if (v == null || v.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("rate for " + ccy + " must be > 0");
                     }
-                    tmp.put(ccy, v);
+                    merged.put(ccy, v);
                 }
-                tmp.putIfAbsent("THB", BigDecimal.ONE);
-                rates = tmp;
+                merged.put("THB", BigDecimal.ONE);
+
+                rates = merged;
             } catch (Exception ex) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid ratesJson: " + ex.getMessage());
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Invalid ratesJson: " + ex.getMessage()
+                );
             }
         } else {
 
@@ -164,8 +180,10 @@ public class ExpenseController {
                 rates = fx.getLiveRatesToThb();
             } catch (Exception ex) {
                 if (!"THB".equalsIgnoreCase(currency)) {
-                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                            "Exchange rate service unavailable; cannot convert " + currency + " to THB right now");
+                    throw new ResponseStatusException(
+                            HttpStatus.SERVICE_UNAVAILABLE,
+                            "Exchange rate service unavailable; cannot convert " + currency + " to THB right now"
+                    );
                 }
                 rates = Map.of("THB", BigDecimal.ONE);
             }
