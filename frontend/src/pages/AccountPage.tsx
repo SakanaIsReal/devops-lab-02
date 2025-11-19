@@ -298,27 +298,6 @@ export const AccountPage: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="mt-6">
-                <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium text-gray-700">Upload your QR code</p>
-                  <input
-                    type="file"
-                    id="qr-code-upload"
-                    name="qr-code-upload"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={handleQrCodeSelect}
-                  />
-                  <label htmlFor="qr-code-upload" className="cursor-pointer">
-                    <ArrowUpOnSquareIcon className="w-6 h-6 text-gray-600 hover:text-gray-800" />
-                  </label>
-                </div>
-                {qrCode && (
-                  <div className="mt-4">
-                    <img src={qrCode} alt="QR Code" className="w-32 h-32 mx-auto" />
-                  </div>
-                )}
-              </div>
               <button
                 type="submit"
 
