@@ -220,7 +220,7 @@ const PayPage: React.FC = () => {
           {/* QR Code */}
           {paymentDetails.phone ? (
             <img
-              src={`https://promptpay.io/${paymentDetails.phone}.png`}
+              src={`https://promptpay.io/${paymentDetails.phone}.png/${paymentDetails.owedAmount?.toFixed(2)}`}
               alt="PromptPay QR Code"
               className="mx-auto w-48 h-48 mb-4 border rounded-lg"
             />
