@@ -235,7 +235,7 @@ public class GroupController {
         if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
 
         String query = (q == null) ? "" : q.trim();
-        if (query.isEmpty()) return List.of(); // กันดึงทั้งก้อนถ้าไม่มี paging
+        if (query.isEmpty()) return List.of();
 
         return groups.searchMyGroups(me, query)
                 .stream()

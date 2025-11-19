@@ -32,6 +32,9 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     private static final String BASE_ITEMS = "/api/expenses/{eid}/items";
     private static final String BASE_SHARES = "/api/expenses/{eid}/items/{iid}/shares";
 
+    // === นโยบายทศนิยมใหม่ ===
+    private static final int SCALE = 6;
+
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
     @Autowired JwtService jwtService;
@@ -197,7 +200,7 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("สร้าง item ผ่าน /items (admin), ตรวจ list + amountThb (USD/JPY/THB), ตรวจ total และ summary (round ต่อรายการ)")
+    @DisplayName("สร้าง item ผ่าน /items (admin), ตรวจ list + amountThb (USD/JPY/THB), ตรวจ total และ summary (round ต่อรายการ 6 ตำแหน่ง)")
     void item_crud_and_totals_multi_currency() throws Exception {
         var resUsd = mvc.perform(post(BASE_ITEMS, expenseId).with(asAdmin(adminId))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
@@ -208,9 +211,9 @@ class ExpenseControllerIT extends BaseIntegrationTest {
                 .andReturn();
         JsonNode usdNode = om.readTree(resUsd.getResponse().getContentAsString());
         long usdItemId = usdNode.get("id").asLong();
-        assertThat(usdNode.get("currency").asText()).isEqualTo("USD"); // uppercase หลัง controller แปลง
-        BigDecimal usdAmtRounded = new BigDecimal("1.24");
-        BigDecimal usdThb = usdAmtRounded.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
+        assertThat(usdNode.get("currency").asText()).isEqualTo("USD");
+        BigDecimal usdAmtScaled = new BigDecimal("1.235").setScale(2, HALF_UP);
+        BigDecimal usdThb = usdAmtScaled.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
         assertThat(new BigDecimal(usdNode.get("amountThb").asText())).isEqualByComparingTo(usdThb);
 
         var resGbp = mvc.perform(post(BASE_ITEMS, expenseId).with(asAdmin(adminId))
@@ -222,7 +225,8 @@ class ExpenseControllerIT extends BaseIntegrationTest {
                 .andReturn();
         JsonNode gbpNode = om.readTree(resGbp.getResponse().getContentAsString());
         long gbpItemId = gbpNode.get("id").asLong();
-        BigDecimal gbpThb = new BigDecimal("2.50").multiply(new BigDecimal("46.50")).setScale(2, HALF_UP);
+        BigDecimal gbpThb = new BigDecimal("2.50").setScale(2, HALF_UP)
+                .multiply(new BigDecimal("46.50")).setScale(2, HALF_UP);
         assertThat(new BigDecimal(gbpNode.get("amountThb").asText())).isEqualByComparingTo(gbpThb);
 
         var listRes = mvc.perform(get(BASE_ITEMS, expenseId).with(asUser(memberId)))
@@ -272,8 +276,8 @@ class ExpenseControllerIT extends BaseIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode node = om.readTree(upd.getResponse().getContentAsString());
-        BigDecimal amtRounded = new BigDecimal("5.56"); // controller scale(2) ก่อนคูณ
-        BigDecimal thb = amtRounded.multiply(new BigDecimal("39.90")).setScale(2, HALF_UP);
+        BigDecimal amtScaled = new BigDecimal("5.555").setScale(2, HALF_UP);
+        BigDecimal thb = amtScaled.multiply(new BigDecimal("39.90")).setScale(2, HALF_UP);
         assertThat(new BigDecimal(node.get("amountThb").asText())).isEqualByComparingTo(thb);
         assertThat(node.get("name").asText()).isEqualTo("EUR Bread XL");
     }
@@ -303,12 +307,13 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("สร้าง share: แบบเปอร์เซ็นต์กับแบบมูลค่า ตรวจค่า original และ THB (scale ก่อนคูณเรต)")
+    @DisplayName("สร้าง share: แบบเปอร์เซ็นต์กับแบบมูลค่า ตรวจค่า original และ THB (scale ก่อนคูณเรต = 6 ตำแหน่ง)")
     void share_add_value_and_percent() throws Exception {
         var items = itemRepo.findByExpense_Id(expenseId);
         long jpyItemId = items.stream().filter(i -> "JPY".equals(i.getCurrency())).findFirst().orElseThrow().getId();
         long usdItemId = items.stream().filter(i -> "USD".equals(i.getCurrency())).findFirst().orElseThrow().getId();
 
+        // JPY 800 * 12.5% = 100.000000, THB = 100 * 0.245 = 24.500000
         mvc.perform(post(BASE_SHARES, expenseId, jpyItemId).with(asAdmin(adminId))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("participantUserId", String.valueOf(memberId))
@@ -316,9 +321,10 @@ class ExpenseControllerIT extends BaseIntegrationTest {
                 .andExpect(status().isOk());
         var sJPY = shareRepo.findByExpenseItem_Id(jpyItemId).stream().findFirst().orElseThrow();
         assertThat(sJPY.getSharePercent()).isEqualByComparingTo("12.5");
-        assertThat(sJPY.getShareOriginalValue()).isEqualByComparingTo("100.00"); // 800 * 12.5% = 100.00
-        assertThat(sJPY.getShareValue()).isEqualByComparingTo(new BigDecimal("24.50")); // 100 * 0.245
+        assertThat(sJPY.getShareOriginalValue()).isEqualByComparingTo(new BigDecimal("100.000000"));
+        assertThat(sJPY.getShareValue()).isEqualByComparingTo(new BigDecimal("24.500000"));
 
+        // USD shareValue=12.345 → original=12.345000, THB=12.345000*36.25=447.506250
         mvc.perform(post(BASE_SHARES, expenseId, usdItemId).with(asAdmin(adminId))
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .param("participantUserId", String.valueOf(memberId))
@@ -326,12 +332,12 @@ class ExpenseControllerIT extends BaseIntegrationTest {
                 .andExpect(status().isOk());
         var sUSD = shareRepo.findByExpenseItem_Id(usdItemId).stream()
                 .filter(s -> s.getSharePercent() == null).findFirst().orElseThrow();
-        assertThat(sUSD.getShareOriginalValue()).isEqualByComparingTo("12.35"); // scale ก่อนคูณ
-        assertThat(sUSD.getShareValue()).isEqualByComparingTo(new BigDecimal("447.69")); // 12.35 * 36.25 = 447.6875 → 447.69
+        assertThat(sUSD.getShareOriginalValue()).isEqualByComparingTo(new BigDecimal("12.345000"));
+        assertThat(sUSD.getShareValue()).isEqualByComparingTo(new BigDecimal("447.506250"));
     }
 
     @Test
-    @DisplayName("อัปเดต share: เปลี่ยนจาก value → percent และคำนวณ THB ใหม่ (ตามนโยบาย scale ก่อนคูณ)")
+    @DisplayName("อัปเดต share: เปลี่ยนจาก value → percent และคำนวณ THB ใหม่ (scale ก่อนคูณเรต = 6 ตำแหน่ง)")
     void share_update_switch_mode() throws Exception {
         var items = itemRepo.findByExpense_Id(expenseId);
         long usdItemId = items.stream().filter(i -> "USD".equals(i.getCurrency())).findFirst().orElseThrow().getId();
@@ -351,8 +357,8 @@ class ExpenseControllerIT extends BaseIntegrationTest {
         var updated = shareRepo.findById(share.getId()).orElseThrow();
         assertThat(updated.getSharePercent()).isEqualByComparingTo("50");
         var item = itemRepo.findById(usdItemId).orElseThrow();
-        BigDecimal original = item.getAmount().multiply(new BigDecimal("0.50")).setScale(2, HALF_UP);
-        BigDecimal thb = original.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
+        BigDecimal original = item.getAmount().multiply(new BigDecimal("0.50")).setScale(SCALE, HALF_UP);
+        BigDecimal thb = original.multiply(new BigDecimal("36.25")).setScale(SCALE, HALF_UP);
         assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(original);
         assertThat(updated.getShareValue()).isEqualByComparingTo(thb);
     }
@@ -397,20 +403,20 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /{id}/total-items → รวม THB จากหลายสกุลด้วยเรตที่ล็อกไว้ (round ต่อรายการ)")
+    @DisplayName("GET /{id}/total-items → รวม THB จากหลายสกุลด้วยเรตที่ล็อกไว้ (round ต่อรายการ 6 ตำแหน่ง)")
     void items_total_multi_currency_locked_fx() throws Exception {
         var items = itemRepo.findByExpense_Id(expenseId);
 
         BigDecimal usd = items.stream().filter(i -> "USD".equals(i.getCurrency()))
-                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(SCALE, HALF_UP);
         BigDecimal jpy = items.stream().filter(i -> "JPY".equals(i.getCurrency()))
-                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(SCALE, HALF_UP);
         BigDecimal thb = items.stream().filter(i -> "THB".equals(i.getCurrency()) || i.getCurrency() == null)
-                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(ExpenseItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(SCALE, HALF_UP);
 
-        BigDecimal usdTHB = usd.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
-        BigDecimal jpyTHB = jpy.multiply(new BigDecimal("0.245")).setScale(2, HALF_UP);
-        BigDecimal expect = thb.setScale(2, HALF_UP).add(usdTHB).add(jpyTHB).setScale(2, HALF_UP);
+        BigDecimal usdTHB = usd.multiply(new BigDecimal("36.25")).setScale(SCALE, HALF_UP);
+        BigDecimal jpyTHB = jpy.multiply(new BigDecimal("0.245")).setScale(SCALE, HALF_UP);
+        BigDecimal expect = thb.add(usdTHB).add(jpyTHB).setScale(SCALE, HALF_UP);
 
         mvc.perform(get(BASE_EXP + "/{id}/total-items", expenseId).with(asUser(memberId)))
                 .andExpect(status().isOk())
@@ -418,7 +424,7 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /{id}/total-items → เมื่อไม่มีรายการย่อยเป็น 0")
+    @DisplayName("GET /{id}/total-items → เมื่อไม่มีรายการย่อยเป็น 0.000000")
     void items_total_zero_when_no_items() throws Exception {
         var e2 = new Expense();
         e2.setGroup(groupRepo.getReferenceById(groupId));
@@ -432,7 +438,7 @@ class ExpenseControllerIT extends BaseIntegrationTest {
 
         mvc.perform(get(BASE_EXP + "/{id}/total-items", id2).with(asUser(memberId)))
                 .andExpect(status().isOk())
-                .andExpect(content().string("0"));
+                .andExpect(content().string(new BigDecimal("0").setScale(0, HALF_UP).toPlainString()));
     }
 
     @Test
@@ -443,10 +449,10 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /{id}/total-verified → รวมเฉพาะ VERIFIED")
+    @DisplayName("GET /{id}/total-verified → รวมเฉพาะ VERIFIED (6 ตำแหน่ง)")
     void verified_total_sum_verified_only() throws Exception {
         String expected = paymentRepo == null
-                ? "0"
+                ? new BigDecimal("0").setScale(2, HALF_UP).toPlainString()
                 : paymentRepo.findByExpense_Id(expenseId).stream()
                 .filter(p -> p.getStatus() == PaymentStatus.VERIFIED)
                 .map(ExpensePayment::getAmount)
@@ -459,37 +465,40 @@ class ExpenseControllerIT extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /{id}/summary → itemsTotal(THB ตามเรตล็อก, round ต่อรายการ) และ verifiedTotal")
+    @DisplayName("GET /{id}/summary → itemsTotal(2 ตำแหน่ง) และ verifiedTotal(2 ตำแหน่ง)")
     void summary_totals() throws Exception {
         var items = itemRepo.findByExpense_Id(expenseId);
 
         BigDecimal total = BigDecimal.ZERO;
         for (var it : items) {
-            BigDecimal amt = it.getAmount();
+            BigDecimal amt = it.getAmount().setScale(2, HALF_UP);
             String ccy = it.getCurrency();
-            BigDecimal thb;
-            if ("USD".equals(ccy)) thb = amt.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
-            else if ("JPY".equals(ccy)) thb = amt.multiply(new BigDecimal("0.245")).setScale(2, HALF_UP);
-            else if ("EUR".equals(ccy)) thb = amt.multiply(new BigDecimal("39.90")).setScale(2, HALF_UP);
-            else if ("GBP".equals(ccy)) thb = amt.multiply(new BigDecimal("46.50")).setScale(2, HALF_UP);
-            else thb = amt.setScale(2, HALF_UP);
-            total = total.add(thb);
+            BigDecimal thbVal;
+            if ("USD".equals(ccy))      thbVal = amt.multiply(new BigDecimal("36.25"));
+            else if ("JPY".equals(ccy)) thbVal = amt.multiply(new BigDecimal("0.245"));
+            else if ("EUR".equals(ccy)) thbVal = amt.multiply(new BigDecimal("39.90"));
+            else if ("GBP".equals(ccy)) thbVal = amt.multiply(new BigDecimal("46.50"));
+            else                        thbVal = amt;
+            total = total.add(thbVal);
         }
-        total = total.setScale(2, HALF_UP);
+        // ทำ expected เป็น 2 ตำแหน่งตามที่ต้องการ
+        BigDecimal expectedItemsTotal = total.setScale(2, HALF_UP);
 
-        BigDecimal verified = paymentRepo == null
+        BigDecimal verified = (paymentRepo == null
                 ? BigDecimal.ZERO
                 : paymentRepo.findByExpense_Id(expenseId).stream()
                 .filter(p -> p.getStatus() == PaymentStatus.VERIFIED)
                 .map(ExpensePayment::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .reduce(BigDecimal.ZERO, BigDecimal::add))
                 .setScale(2, HALF_UP);
 
         mvc.perform(get(BASE_EXP + "/{id}/summary", expenseId).with(asUser(memberId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.itemsTotal").value(total.doubleValue()))
+                .andExpect(jsonPath("$.itemsTotal").value(expectedItemsTotal.doubleValue()))
                 .andExpect(jsonPath("$.verifiedTotal").value(verified.doubleValue()));
+
     }
+
 
     @Test
     @DisplayName("ชุด ISP: boundary amounts ในการสร้าง expense 0, 0.01, 9999999999.99, 123.456 (accept)")

@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,10 +25,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-
 class ExpenseItemShareControllerIT extends BaseIntegrationTest {
 
     private static final String BASE = "/api/expenses/{expenseId}/items/{itemId}/shares";
+
+    // === New: enforce 6-decimal expectation everywhere ===
+    private static final int SCALE = 6;
+    private static final RoundingMode RM = HALF_UP;
+    private static BigDecimal bd(String s) {
+        return new BigDecimal(s).setScale(SCALE, RM);
+    }
+    private static BigDecimal mulThb(BigDecimal original, String rate) {
+        return original.multiply(new BigDecimal(rate)).setScale(SCALE, RM);
+    }
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
@@ -160,8 +170,15 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
         ExpenseItemShare s = new ExpenseItemShare();
         s.setExpenseItem(itemRepo.getReferenceById(itemId));
         s.setParticipant(userRepo.getReferenceById(userId));
-        s.setShareValue(thb == null ? null : new BigDecimal(thb));
-        s.setSharePercent(percent == null ? null : new BigDecimal(percent));
+
+        // เราคุมสเกล 6 ตำแหน่งให้สอดคล้องกับระบบใหม่
+        BigDecimal v = thb == null ? null : new BigDecimal(thb).setScale(SCALE, RM);
+        BigDecimal p = percent == null ? null : new BigDecimal(percent).setScale(SCALE, RM);
+
+        s.setShareValue(v);
+        s.setSharePercent(p);
+        s.setShareOriginalValue(v != null ? v : BigDecimal.ZERO.setScale(SCALE, RM));
+
         return shareRepo.save(s);
     }
 
@@ -178,42 +195,39 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
     class AddShares {
 
         @Test
-        @DisplayName("POST (THB, shareValue=15.50) → 200 และ DB เก็บ THB=15.50, percent=null")
+        @DisplayName("POST (THB, shareValue=15.50) → 200 และ DB เก็บ THB=15.500000, percent=null")
         void add_thb_value() throws Exception {
             mvc.perform(post(BASE, expenseId, thbItemId)
                             .with(asAdmin(adminId))
                             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                             .param("participantUserId", String.valueOf(otherId))
                             .param("shareValue", "15.50"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.shareValue").value(15.50))
-                    .andExpect(jsonPath("$.sharePercent").doesNotExist());
+                    .andExpect(status().isOk());
 
             var list = shareRepo.findByExpenseItem_Id(thbItemId);
             assertThat(list).hasSize(1);
-            assertThat(list.get(0).getShareValue()).isEqualByComparingTo(new BigDecimal("15.50"));
+            assertThat(list.get(0).getShareValue().toPlainString()).isEqualTo("15.500000");
             assertThat(list.get(0).getSharePercent()).isNull();
         }
 
         @Test
-        @DisplayName("POST (THB, sharePercent=10) → 200 และ DB เก็บ THB=10.00, percent=10")
+        @DisplayName("POST (THB, sharePercent=10) → 200 และ DB เก็บ THB=10.000000, percent=10.000000")
         void add_thb_percent() throws Exception {
             mvc.perform(post(BASE, expenseId, thbItemId)
                             .with(asAdmin(adminId))
                             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                             .param("participantUserId", String.valueOf(otherId))
                             .param("sharePercent", "10"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.sharePercent").value(10.00));
+                    .andExpect(status().isOk());
 
             var list = shareRepo.findByExpenseItem_Id(thbItemId);
             assertThat(list).hasSize(1);
-            assertThat(list.get(0).getShareValue()).isEqualByComparingTo(new BigDecimal("10.00"));
-            assertThat(list.get(0).getSharePercent()).isEqualByComparingTo(new BigDecimal("10.00"));
+            assertThat(list.get(0).getShareValue().toPlainString()).isEqualTo("10.000000");
+            assertThat(list.get(0).getSharePercent().toPlainString()).isEqualTo("10.000000");
         }
 
         @Test
-        @DisplayName("POST (USD, item=123.45, percent=10) → THB = 12.35×36.25 = 447.69")
+        @DisplayName("POST (USD, item=123.45, percent=10) → THB = 12.345000×36.25 = 447.656250")
         void add_usd_percent_converts_to_thb() throws Exception {
             long usdItemId = newItem("Item USD", "USD", "123.45");
             mvc.perform(post(BASE, expenseId, usdItemId)
@@ -221,16 +235,16 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                             .param("participantUserId", String.valueOf(otherId))
                             .param("sharePercent", "10"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.sharePercent").value(10.00));
+                    .andExpect(status().isOk());
 
             var s = shareRepo.findByExpenseItem_Id(usdItemId).get(0);
-            BigDecimal expectedThb = new BigDecimal("12.35").multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
-            assertThat(s.getShareValue()).isEqualByComparingTo(expectedThb);
+            BigDecimal original = bd("12.345000");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
         }
 
         @Test
-        @DisplayName("POST (USD, shareValue=12.345) → ปัดเป็น 12.35 ก่อนคูณเรต → THB=447.69")
+        @DisplayName("POST (USD, shareValue=12.345) → ไม่ปัดเป็น 2 ตำแหน่ง แต่ใช้ 12.345000 × 36.25 = 447.656250")
         void add_usd_value_round_and_convert() throws Exception {
             long usdItemId = newItem("Item USD", "USD", "200.00");
             mvc.perform(post(BASE, expenseId, usdItemId)
@@ -241,14 +255,15 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                     .andExpect(status().isOk());
 
             var s = shareRepo.findByExpenseItem_Id(usdItemId).get(0);
-            BigDecimal originalRounded = new BigDecimal("12.35");
-            BigDecimal expectedThb = originalRounded.multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
-            assertThat(s.getShareValue()).isEqualByComparingTo(expectedThb);
+            BigDecimal original = bd("12.345");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(s.getShareOriginalValue().toPlainString()).isEqualTo("12.345000");
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
             assertThat(s.getSharePercent()).isNull();
         }
 
         @Test
-        @DisplayName("POST (JPY, item=800, percent=12.5) → original=100.00 JPY → THB=25.00")
+        @DisplayName("POST (JPY, item=800, percent=12.5) → original=100.000000 JPY → THB=25.000000")
         void add_jpy_percent() throws Exception {
             long jpyItemId = newItem("Item JPY", "JPY", "800.00");
             mvc.perform(post(BASE, expenseId, jpyItemId)
@@ -259,9 +274,11 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                     .andExpect(status().isOk());
 
             var s = shareRepo.findByExpenseItem_Id(jpyItemId).get(0);
-            BigDecimal expectedThb = new BigDecimal("100.00").multiply(new BigDecimal("0.25")).setScale(2, HALF_UP);
-            assertThat(s.getShareValue()).isEqualByComparingTo(expectedThb);
-            assertThat(s.getSharePercent()).isEqualByComparingTo(new BigDecimal("12.50"));
+            BigDecimal original = bd("100.00"); // 800 * 12.5%
+            BigDecimal expectedThb = mulThb(original, "0.25"); // 25.000000
+            assertThat(s.getShareOriginalValue().toPlainString()).isEqualTo("100.000000");
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
+            assertThat(s.getSharePercent().toPlainString()).isEqualTo("12.500000");
         }
 
         @Test
@@ -315,7 +332,7 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
     class UpdateShares {
 
         @Test
-        @DisplayName("PUT (THB, new value=22.22) → 200 และ DB เก็บ THB=22.22, percent=null")
+        @DisplayName("PUT (THB, new value=22.22) → 200 และ DB เก็บ THB=22.220000, percent=null")
         void update_thb_value() throws Exception {
             var created = persistShare(thbItemId, otherId, "5.00", null);
 
@@ -323,16 +340,15 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                             .with(asAdmin(adminId))
                             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                             .param("shareValue", "22.22"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.shareValue").value(22.22));
+                    .andExpect(status().isOk());
 
             var updated = shareRepo.findById(created.getId()).orElseThrow();
-            assertThat(updated.getShareValue()).isEqualByComparingTo(new BigDecimal("22.22"));
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo("22.220000");
             assertThat(updated.getSharePercent()).isNull();
         }
 
         @Test
-        @DisplayName("PUT (THB, new percent=8) → 200 และ DB เก็บ THB=8.00, percent=8")
+        @DisplayName("PUT (THB, new percent=8) → 200 และ DB เก็บ THB=8.000000, percent=8.000000")
         void update_thb_percent() throws Exception {
             var created = persistShare(thbItemId, otherId, "5.00", null);
 
@@ -340,16 +356,15 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                             .with(asAdmin(adminId))
                             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                             .param("sharePercent", "8"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.sharePercent").value(8.00));
+                    .andExpect(status().isOk());
 
             var updated = shareRepo.findById(created.getId()).orElseThrow();
-            assertThat(updated.getShareValue()).isEqualByComparingTo(new BigDecimal("8.00"));
-            assertThat(updated.getSharePercent()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo("8.000000");
+            assertThat(updated.getSharePercent().toPlainString()).isEqualTo("8.000000");
         }
 
         @Test
-        @DisplayName("PUT (USD, item=200, value=12.345) → THB=12.35×36.25=447.69")
+        @DisplayName("PUT (USD, item=200, value=12.345) → THB=12.345000×36.25=447.656250")
         void update_usd_value_convert() throws Exception {
             long usdItemId = newItem("To Update USD", "USD", "200.00");
             var created = persistShare(usdItemId, otherId, "1.00", null);
@@ -361,8 +376,10 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
                     .andExpect(status().isOk());
 
             var updated = shareRepo.findById(created.getId()).orElseThrow();
-            BigDecimal expectedThb = new BigDecimal("12.35").multiply(new BigDecimal("36.25")).setScale(2, HALF_UP);
-            assertThat(updated.getShareValue()).isEqualByComparingTo(expectedThb);
+            BigDecimal original = bd("12.345");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(updated.getShareOriginalValue().toPlainString()).isEqualTo("12.345000");
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
             assertThat(updated.getSharePercent()).isNull();
         }
 

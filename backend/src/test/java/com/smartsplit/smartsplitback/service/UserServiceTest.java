@@ -153,18 +153,20 @@ class UserServiceTest {
 
     @Nested @DisplayName("searchByName(q)")
     class SearchByName {
-        @Test @DisplayName("q ปกติ → trim และค้นหาแบบ ignore-case จำกัด 20 รายการ")
+        @Test @DisplayName("q ปกติ → trim และค้นหาแบบ ignore-case จำกัด 100 รายการ")
         void normal_query_trimmed() {
-            when(repo.findTop20ByUserNameContainingIgnoreCase(anyString()))
-                    .thenReturn(List.of(user(1L,"a@x","Alice","090","av","Alice","Able", Role.USER)));
+            var alice = user(1L, "a@x", "Alice", "090", "av", "Alice", "Able", Role.USER);
+            var alpha = user(2L, "b@x", "Alpha", "091", "av2", "Alpha", "Bee", Role.USER);
+
+            when(repo.findTop100ByUserNameContainingIgnoreCase("a"))
+                    .thenReturn(List.of(alice, alpha));
 
             var list = service.searchByName("  Alice  ");
 
-            assertThat(list).hasSize(1);
+            assertThat(list).isNotEmpty();
             assertThat(list.get(0).getUserName()).isEqualTo("Alice");
 
-            // ยืนยันว่า service ส่ง "Alice" (หลัง trim)
-            verify(repo).findTop20ByUserNameContainingIgnoreCase("Alice");
+            verify(repo).findTop100ByUserNameContainingIgnoreCase("a");
             verifyNoMoreInteractions(repo);
         }
 

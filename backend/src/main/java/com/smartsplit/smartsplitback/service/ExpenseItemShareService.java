@@ -142,14 +142,14 @@ public class ExpenseItemShareService {
 
     private BigDecimal scaleMoney(BigDecimal v) {
         if (v == null) return null;
-        return v.setScale(2, RoundingMode.HALF_UP);
+        return v.setScale(6, RoundingMode.HALF_UP);
     }
 
     private BigDecimal percentToValue(BigDecimal itemAmount, BigDecimal percent) {
         BigDecimal base = (itemAmount != null) ? itemAmount : BigDecimal.ZERO;
         BigDecimal pct  = (percent != null) ? percent : BigDecimal.ZERO;
         // base * pct / 100  (scale 2, HALF_UP)
-        return base.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        return base.multiply(pct).divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
     }
 
     // ---------- helpers ----------
