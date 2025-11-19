@@ -7,7 +7,6 @@ import {
   Settlement,
   Transaction,
   User,
-  UserUpdateForm,
   Payment,
 } from '../types';
 
@@ -278,67 +277,48 @@ export const fetchUserProfiles = async (ids: number[]) => {
 // editUserInformationAcc
 // ============================================================================
 
+export interface UserUpdateForm {
+  userName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  avatar: string | File;
+  qr: string | File;
+}
+
+// แก้ให้รองรับทั้ง File และ Blob + ไม่ติด instanceof อย่างเดียว
 export const editUserInformationAcc = async (
   userId: string | number,
-  formData: UserUpdateForm
+  payload: UserUpdateForm
 ): Promise<any> => {
-  const hasNewFile = formData?.avatar instanceof File || formData?.qr instanceof File;
-  if (hasNewFile) {
-    const data = new FormData();
-    const userPayload: any = {};
-    if (formData.userName !== null && formData.userName !== undefined) userPayload.userName = formData.userName;
-    if (formData.email !== null && formData.email !== undefined) userPayload.email = formData.email;
-    if (formData.phone !== null && formData.phone !== undefined) userPayload.phone = formData.phone;
+  const { avatar, qr, ...userPayload } = payload;
 
-    // Only include firstName/lastName if non-empty
-    if (formData.firstName && typeof formData.firstName === 'string' && formData.firstName.trim() !== '') {
-      userPayload.firstName = formData.firstName.trim();
-    }
-    if (formData.lastName && typeof formData.lastName === 'string' && formData.lastName.trim() !== '') {
-      userPayload.lastName = formData.lastName.trim();
-    }
+  const data = new FormData();
 
-    data.append('user', new Blob([JSON.stringify(userPayload)], { type: 'application/json' }), 'user.json');
-    if (formData.avatar instanceof File) data.append('avatar', formData.avatar);
-    if (formData.qr instanceof File) data.append('qr', formData.qr);
+  data.append(
+    "user",
+    new Blob([JSON.stringify(userPayload)], {
+      type: "application/json",
+    })
+  );
 
-    const response = await api.put(`/users/${userId}`, data);
-    return response.data;
-  } else {
-    const updatePayload: any = {};
-    if (formData.userName !== null && formData.userName !== undefined) updatePayload.userName = formData.userName;
-    if (formData.email !== null && formData.email !== undefined) updatePayload.email = formData.email;
-    if (formData.phone !== null && formData.phone !== undefined) updatePayload.phone = formData.phone;
-
-    // If avatar/qr are strings (URLs) include them but avoid data: URLs
-    if (typeof formData.avatar === 'string' && formData.avatar !== null) {
-      if (!formData.avatar.startsWith('data:')) {
-        updatePayload.avatarUrl = formData.avatar;
-      }
-    } else if (formData.avatar === null) {
-      updatePayload.avatarUrl = null;
-    }
-
-    if (typeof formData.qr === 'string' && formData.qr !== null) {
-      if (!formData.qr.startsWith('data:')) {
-        updatePayload.qrCodeUrl = formData.qr;
-      }
-    } else if (formData.qr === null) {
-      updatePayload.qrCodeUrl = null;
-    }
-
-    // Only include firstName/lastName when non-empty
-    if (formData.firstName && typeof formData.firstName === 'string' && formData.firstName.trim() !== '') {
-      updatePayload.firstName = formData.firstName.trim();
-    }
-    if (formData.lastName && typeof formData.lastName === 'string' && formData.lastName.trim() !== '') {
-      updatePayload.lastName = formData.lastName.trim();
-    }
-
-    const response = await api.put(`/users/${userId}`, updatePayload);
-    return response.data;
+  // avatar: string (url เดิม) หรือ File
+  if (avatar && typeof avatar !== "string") {
+    data.append("avatar", avatar as File);
   }
+
+  // qr: string (url เดิม) หรือ File
+  if (qr && typeof qr !== "string") {
+    data.append("qr", qr as File);
+  }
+
+  const response = await api.put(`/users/${userId}`, data);
+  return response.data;
 };
+
+
+
 
 // ============================================================================
 // Expense & Bills (Main Logic)

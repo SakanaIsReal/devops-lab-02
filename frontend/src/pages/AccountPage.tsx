@@ -4,16 +4,26 @@ import Navbar from '../components/Navbar';
 import { BottomNav } from '../components/BottomNav';
 import CircleBackButton from '../components/CircleBackButton';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowUpOnSquareIcon } from '@heroicons/react/24/outline';
 import { editUserInformationAcc, getUserInformation } from "../utils/api";
 import { User } from '../types';
 import { validateAndCompressImage } from '../utils/imageCompression';
+
+interface UserUpdateState {
+  userName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  avatar: string | File;   // ❗ ใช้ string | File ให้ตรงกับ UserUpdateForm
+  qr: string | File;       // ❗ เช่นกัน
+}
 
 export const AccountPage: React.FC = () => {
 
   const navigate = useNavigate();
   const { user, isLoading, updateUser } = useAuth();
-  const [formUserUpdate, setformUserUpdate] = useState({
+
+  const [formUserUpdate, setformUserUpdate] = useState<UserUpdateState>({
     userName: "",
     firstName: "",
     lastName: "",
@@ -22,8 +32,9 @@ export const AccountPage: React.FC = () => {
     avatar: "",
     qr: ""
   });
-  const [avatar, setAvatar] = useState(user?.imageUrl || 'https://via.placeholder.com/150');
-  const [qrCode, setQrCode] = useState(user?.qrCodeUrl || null);
+
+  const [avatar, setAvatar] = useState<string>(user?.imageUrl || 'https://via.placeholder.com/150');
+  const [qrCode, setQrCode] = useState<string | null>(user?.qrCodeUrl || null);
   const [error, setError] = useState<string | null>(null);
   const [loadingUserData, setLoadingUserData] = useState(false);
   const [compressing, setCompressing] = useState(false);
@@ -83,6 +94,7 @@ export const AccountPage: React.FC = () => {
     if (error) setError(null);
   };
 
+  // เลือกรูปโปรไฟล์
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
@@ -90,7 +102,8 @@ export const AccountPage: React.FC = () => {
       setCompressing(true);
       setError(null);
 
-      const result = await validateAndCompressImage(file);
+      // ใส่ any ไปก่อนเพื่อเลี่ยง TS ดื้อกับ compressedFile type
+      const result: any = await validateAndCompressImage(file);
 
       setCompressing(false);
 
@@ -99,7 +112,17 @@ export const AccountPage: React.FC = () => {
         return;
       }
 
-      const compressedFile = result.compressedFile!;
+      // compressedSource: อาจเป็น File หรือ Blob
+      const compressedSource = result.compressedFile as File | Blob;
+
+      // บังคับให้สุดท้ายต้องเป็น File เสมอ (type ตรงกับ state กับ API)
+      let compressedFile: File;
+      if (compressedSource instanceof File) {
+        compressedFile = compressedSource;
+      } else {
+        // ใช้ type เดิมจากไฟล์ต้นฉบับ
+        compressedFile = new File([compressedSource], file.name, { type: file.type });
+      }
 
       // Show preview
       const reader = new FileReader();
@@ -108,14 +131,15 @@ export const AccountPage: React.FC = () => {
       };
       reader.readAsDataURL(compressedFile);
 
-      // Store compressed file
-      setformUserUpdate((prev: any) => ({
+      // Store compressed file (เป็น File แน่นอน)
+      setformUserUpdate((prev) => ({
         ...prev,
-        avatar: compressedFile
+        avatar: compressedFile,
       }));
     }
   };
 
+  // เลือก QR code (ถ้าใช้)
   const handleQrCodeSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
@@ -123,7 +147,7 @@ export const AccountPage: React.FC = () => {
       setCompressing(true);
       setError(null);
 
-      const result = await validateAndCompressImage(file);
+      const result: any = await validateAndCompressImage(file);
 
       setCompressing(false);
 
@@ -132,7 +156,14 @@ export const AccountPage: React.FC = () => {
         return;
       }
 
-      const compressedFile = result.compressedFile!;
+      const compressedSource = result.compressedFile as File | Blob;
+
+      let compressedFile: File;
+      if (compressedSource instanceof File) {
+        compressedFile = compressedSource;
+      } else {
+        compressedFile = new File([compressedSource], file.name, { type: file.type });
+      }
 
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -140,7 +171,7 @@ export const AccountPage: React.FC = () => {
       };
       reader.readAsDataURL(compressedFile);
 
-      setformUserUpdate((prev: any) => ({
+      setformUserUpdate((prev) => ({
         ...prev,
         qr: compressedFile
       }));
@@ -154,9 +185,11 @@ export const AccountPage: React.FC = () => {
       console.error("User not found");
       return;
     }
+    
     try {
       console.log("Submitting user update:", formUserUpdate);
-      await editUserInformationAcc(user?.id, formUserUpdate);
+      await editUserInformationAcc(user.id, formUserUpdate);
+
       const res = await getUserInformation(user.id);
       const userInfo = Array.isArray(res) ? res[0] : res;
       const updatedUser: User = {
@@ -194,14 +227,13 @@ export const AccountPage: React.FC = () => {
     }
   };
 
-
-
   return (
     <div className="min-h-screen h-[160vh] bg-gray-100 flex flex-col">
       <Navbar />
-                <CircleBackButton onClick={() => {
-            navigate("/home", { replace: true });
-          }} /> 
+      <CircleBackButton onClick={() => {
+        navigate("/home", { replace: true });
+      }} /> 
+
       <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
         <div className="p-4 flex-grow">
           <div className="flex flex-col items-center">
@@ -225,6 +257,9 @@ export const AccountPage: React.FC = () => {
                 Open Gallery
               </label>
             </div>
+
+            {/* ถ้าจะใช้ QR upload ด้วยก็ต่อ UI ตรงนี้ได้เลย */}
+
             <div className="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
               <h1 className="text-2xl font-bold text-center mb-6">Edit Account</h1>
 
@@ -243,7 +278,7 @@ export const AccountPage: React.FC = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-700">Username</label>
+                  <label htmlFor="userName" className="block text-sm font-medium text-gray-700">Username</label>
                   <input
                     type="text"
                     id="userName"
@@ -298,9 +333,9 @@ export const AccountPage: React.FC = () => {
                   />
                 </div>
               </div>
+              
               <button
                 type="submit"
-
                 className="w-full mt-6 bg-[#52bf52] text-white font-semibold py-2 px-4 rounded-lg hover:bg-[#47a647] transition duration-300"
               >
                 Save Changes
