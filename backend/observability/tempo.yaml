@@ -1,0 +1,45 @@
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+        grpc:
+
+ingester:
+  trace_idle_period: 10s
+  max_block_bytes: 1000000
+  max_block_duration: 1m
+
+querier: {}
+
+query_frontend: {}
+
+compactor:
+  ring:
+    kvstore:
+      store: memberlist
+  compaction:
+  # ค่า default ก็พอได้ ถ้าต้องการคงบล็อกไว้ 14 วันกำหนดได้
+  # block_retention: 336h
+
+memberlist:
+  join_members: []
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/traces
+
+# ปิด metrics-generator ไว้ก่อน (เพราะยังไม่มี Prometheus/Mimir สำหรับ remote_write)
+overrides:
+  defaults:
+    metrics_generator:
+      processors: []   # ถ้าจะเปิดค่อยเปลี่ยนเป็น [service-graphs, span-metrics, local-blocks]

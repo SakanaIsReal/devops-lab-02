@@ -10,6 +10,7 @@ import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import org.jsoup.Jsoup;
 import org.jsoup.helper.W3CDom;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
@@ -54,6 +55,7 @@ public class ExpenseExportService {
         this.engine.setTemplateResolver(r);
     }
 
+    @Transactional(readOnly = true)
     public byte[] renderExpensePdf(Long expenseId) {
         Expense e = expenses.findById(expenseId).orElse(null);
         if (e == null) throw new NoSuchElementException("Expense not found");

@@ -47,14 +47,11 @@ public class GroupController {
 
     @PreAuthorize("#ownerUserId == null ? isAuthenticated() : @perm.isAdmin()")
     @GetMapping
-    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId, @RequestParam(required = false) String q) {
+    public List<GroupDto> list(@RequestParam(required = false) Long ownerUserId) {
         if (ownerUserId == null) {
             Long me = sec.currentUserId();
             if (me == null) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
-            }
-            if (q != null && !q.isBlank()) {
-                return groups.searchByMemberAndName(me, q).stream().map(this::toDto).toList();
             }
             return groups.listByOwner(me).stream().map(this::toDto).toList();
         } else {

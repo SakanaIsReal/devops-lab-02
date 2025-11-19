@@ -48,11 +48,53 @@ services:
       APP_JWT_EXPIRATION_SECONDS: ${APP_JWT_EXPIRATION_SECONDS:-86400}
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: 200MB
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 200MB
+
+      # --- Loki logs ---
+      LOGGING_LOKI_URL: http://loki:3100/loki/api/v1/push
+      LOGGING_LOKI_ENABLED: "true"
+      # --- Tempo traces ---
+      MANAGEMENT_TRACING_ENABLED: "true"
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
     ports:
       - "8081:8081"
 
     restart: always
 
+  loki:
+    image: grafana/loki:2.9.8
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "13100:3100"
+    restart: always
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "13200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    restart: always
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    ports:
+      - "33000:3000"
+    depends_on:
+      - loki
+      - tempo
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    restart: always
+
 volumes:
   dbdata:
+  tempo-data:
 
