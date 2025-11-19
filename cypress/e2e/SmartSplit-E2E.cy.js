@@ -1,15 +1,15 @@
 describe('Sign In , Sign Up and Sign Out', () => {
   it('TC 1 : Sign up with new account', () => {
-    cy.signUp('MxnlodySoTest', 'TestCypress@example.com', '1234567890', 'zxc123za1', 'zxc123za1');
+    cy.signUp('MxnlodySoTest', 'TestCypress@example.com', '1234567890', '123456', '123456');
   });
   it('TC 2 : Sign up with existing account', () => {
-    cy.existAccount_signUp('MxnlodySoTest', 'TestCypress@example.com', '1234567890', 'zxc123za1', 'zxc123za1');
+    cy.existAccount_signUp('MxnlodySoTest', 'TestCypress@example.com', '1234567890', '123456', '123456');
   });
   it('TC 3 : Sign in with valid account', () => {
-    cy.signIn('manTest@example.com', 'zxc123za1');
+    cy.signIn('man@example.com', '123456');
   });
   it('TC 4 : Sign in with invalid account', () => {
-    cy.invalid_signIn('abc@example.com', 'zxc123za1');
+    cy.invalid_signIn('abc@example.com', '123456');
   });
   it('TC 5 : Sign out', () => {
     cy.signOut();
@@ -18,7 +18,7 @@ describe('Sign In , Sign Up and Sign Out', () => {
 
 describe('Profile Editing', () => {
   beforeEach(() => {
-    cy.signIn('manTest@example.com', 'zxc123za1');
+    cy.signIn('man@example.com', '123456');
   });
   it('TC 6 : Edit profile', () => {
     cy.editProfile('Man-DevOps', '9876543210');
@@ -27,7 +27,7 @@ describe('Profile Editing', () => {
 
 describe('Group Management (CRUD)', () => {
   beforeEach(() => {
-    cy.signIn('manTest@example.com', 'zxc123za1');
+    cy.signIn('man@example.com', '123456');
   });
   it('TC 7 : Create new group', () => {
     cy.createNewGroup('Cypress Add new Group', ['NavadolSom', 'SukiKana']);
@@ -46,7 +46,7 @@ describe('Group Management (CRUD)', () => {
 
 describe('Smart Split Functionality (Expense)', () => {
   beforeEach(() => {
-    cy.signIn('manTest@example.com', 'zxc123za1');
+    cy.signIn('man@example.com', '123456');
   })
   it('TC 11 : Add expense in group with Equality split', () => {
     cy.addExpenseEqualSplit('We are BanYai', 'About us 10/10/2025', '1500');
@@ -58,7 +58,7 @@ describe('Smart Split Functionality (Expense)', () => {
 
 describe('Smart Split Functionality (Payment)', () => {
   beforeEach(() => {
-    cy.signIn('nice1221@example.com', 'zxc123za1');
+    cy.signIn('navadol@example.com', '123456');
   })
   it('TC 13 : Expense Payment from Dashboard ', () => {
     cy.payExpenseFromDashboard("5 Star Restuarant")
@@ -70,7 +70,7 @@ describe('Smart Split Functionality (Payment)', () => {
 
 describe('Smart Split Functionality (Verify Payment)', () => {
   beforeEach(() => {
-    cy.signIn('manTest@example.com', 'zxc123za1');
+    cy.signIn('man@example.com', '123456');
   })
   it('TC 15 : Confirm Payment', () => {
     cy.conFirmExpensePay("We are BanYai", "5 Star Restuarant", ["NavadolSom"]);

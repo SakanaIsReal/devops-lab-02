@@ -15,8 +15,8 @@ interface TransactionCardProps {
 }
 
 const statusColors: { [key: string]: string } = {
-  completed: 'bg-green-200 text-green-800',
-  pending: 'bg-yellow-200 text-yellow-800',
+  Completed: 'bg-green-200 text-green-800',
+  Pendding: 'bg-yellow-200 text-yellow-800',
   canceled: 'bg-red-200 text-red-800',
 };
 
@@ -32,12 +32,9 @@ const TransactionCard: React.FC<TransactionCardProps> = ({ transaction }) => {
     const lowerCaseStatus = status.toLowerCase();
     switch (lowerCaseStatus) {
       case 'settled':
-      case 'completed':
-        return 'completed';
-      case 'open':
-        return 'pending';
-      case 'canceled':
-        return 'canceled';
+        return 'Pendding'
+      case 'complete':
+        return 'Complete';
       default:
         return lowerCaseStatus;
     }
@@ -54,7 +51,7 @@ const TransactionCard: React.FC<TransactionCardProps> = ({ transaction }) => {
         <p className="text-gray-500 text-sm">{transaction.date}</p>
       </div>
       <div className="flex items-center space-x-4">
-        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[displayStatus] || 'bg-gray-200 text-gray-800'}`}>
+        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[displayStatus] || 'bg-green-200 text-gray-800'}`}>
           {displayStatus}
         </span>
         <button

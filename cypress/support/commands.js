@@ -30,8 +30,8 @@ Cypress.Commands.add("signIn", (email, password) => {
 });
 Cypress.Commands.add("signOut", () => {
     cy.visit(WebPageLocators.loginPage);
-    cy.get(LoginLocators.usernameInput).type('manTest@example.com');
-    cy.get(LoginLocators.passwordInput).type('zxc123za1');
+    cy.get(LoginLocators.usernameInput).type('man@example.com');
+    cy.get(LoginLocators.passwordInput).type('123456');
     cy.xpath(LoginLocators.submitButton).click();
     cy.wait(6000)
     cy.get('[data-cy="User-account"]').click();
@@ -225,12 +225,6 @@ Cypress.Commands.add("addExpenseManualSplit", (groupName, expenseName) => {
     });
     cy.contains("FINISH").click();
     cy.wait(5000)
-    // cy.visit(WebPageLocators.groupsPage);
-    // cy.xpath(
-    //     `//h2[text()="${groupName}"]/ancestor::a//button[contains(text(),"View")]`
-    // ).click();
-    // cy.xpath(GroupAddLocator.groupNameHeader).should("contain.text", groupName);
-    // cy.contains(expenseName);
 });
 Cypress.Commands.add("payExpenseFromDashboard", (expenseName) => {
     cy.visit(WebPageLocators.homePage);

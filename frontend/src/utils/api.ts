@@ -672,11 +672,6 @@ export const updatePaymentStatus = async (expenseId: number, paymentId: number, 
 // Transactions (History)
 // ============================================================================
 
-export const getTransactions = async (): Promise<any[]> => {
-  const response = await api.get('/transactions');
-  return response.data;
-};
-
 export const getGroupTransactions = async (groupId: string): Promise<Transaction[]> => {
   const response = await api.get(`/expenses/group/${groupId}`);
   const expenses = Array.isArray(response.data) ? response.data : [];
