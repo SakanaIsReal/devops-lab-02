@@ -8,4 +8,5 @@ import java.util.List;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);  // ใช้ตอน register/login
     List<User> findTop20ByUserNameContainingIgnoreCase(String q);
+    List<User> findTop100ByUserNameContainingIgnoreCase(String q);
 }

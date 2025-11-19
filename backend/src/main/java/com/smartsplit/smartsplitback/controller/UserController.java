@@ -70,7 +70,7 @@ public class UserController {
     @GetMapping("/search")
     public List<UserPublicDto> search(@RequestParam("q") String q) {
         return svc.searchByName(q).stream()
-                .map(UserController::toPublicDto) // ตัด qrCodeUrl ออก
+                .map(UserController::toPublicDto)
                 .toList();
     }
 
