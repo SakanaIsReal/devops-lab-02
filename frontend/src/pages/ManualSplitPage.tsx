@@ -236,7 +236,7 @@ export default function ManualSplitPage() {
                         
                         // เอา Amount ดิบ หาร จำนวนคน
                         const rawShareValue = amountNum / numberOfSharers;
-                        const shareValue = rawShareValue.toFixed(2);
+                        const shareValue = rawShareValue.toFixed(4);
 
                         console.log(`Item "${item.name}": Equal Split (${itemCurrency}). ${amountNum} / ${numberOfSharers} = ${shareValue}`);
 
@@ -535,7 +535,7 @@ export default function ManualSplitPage() {
                                 {Object.entries(currencyTotals).map(([currency, total]) => (
                                     <span key={currency} className="text-lg">
                                         {getCurrencySymbol(currency)}
-                                        {total.toFixed(2)}
+                                        {total.toFixed(4)}
                                         {Object.keys(currencyTotals).length > 1 && (
                                             <span className="text-sm text-gray-500 ml-1">({currency})</span>
                                         )}
