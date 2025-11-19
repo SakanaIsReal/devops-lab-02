@@ -1,31 +1,34 @@
 package com.smartsplit.smartsplitback.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartsplit.smartsplitback.model.*;
+import com.smartsplit.smartsplitback.model.Expense;
+import com.smartsplit.smartsplitback.model.Group;
+import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.model.dto.ExpenseDto;
-import com.smartsplit.smartsplitback.service.ExpenseService;
-import com.smartsplit.smartsplitback.service.GroupService;
-import com.smartsplit.smartsplitback.service.UserService;
+import com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto;
+import com.smartsplit.smartsplitback.security.Perms;
+import com.smartsplit.smartsplitback.service.ExpenseExportService;
 import com.smartsplit.smartsplitback.service.ExpenseItemService;
 import com.smartsplit.smartsplitback.service.ExpensePaymentService;
-import com.smartsplit.smartsplitback.service.ExpenseExportService;
+import com.smartsplit.smartsplitback.service.ExpenseService;
+import com.smartsplit.smartsplitback.service.ExpenseSettlementService;
 import com.smartsplit.smartsplitback.service.ExchangeRateService;
+import com.smartsplit.smartsplitback.service.GroupService;
+import com.smartsplit.smartsplitback.service.UserService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto;
-import com.smartsplit.smartsplitback.service.ExpenseSettlementService;
-import com.smartsplit.smartsplitback.security.Perms;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import java.math.RoundingMode;
+
 import java.math.BigDecimal;
-import java.util.List;
-import java.util.Map;
-import java.util.Locale;
+import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/expenses")
@@ -87,19 +90,7 @@ public class ExpenseController {
 
         var statusNode = json.get("status");
         if (statusNode != null && "SETTLED".equalsIgnoreCase(statusNode.asText())) {
-            Map<String, BigDecimal> rates = fx.getRatesToThb(e);
-            var items = itemService.listByExpense(id);
-
-            BigDecimal itemsTotal = (items == null || items.isEmpty())
-                    ? BigDecimal.ZERO
-                    : items.stream()
-                    .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal verifiedTotal = paymentService.sumVerified(id);
-            if (verifiedTotal == null) verifiedTotal = BigDecimal.ZERO;
-
-            if (verifiedTotal.compareTo(itemsTotal) >= 0) {
+            if (isExpenseFullyPaid(e)) {
                 json.put("status", "COMPLETE");
             }
         }
@@ -109,11 +100,24 @@ public class ExpenseController {
 
     @PreAuthorize("@perm.isGroupMember(#groupId)")
     @GetMapping("/group/{groupId}")
-    public List<ExpenseDto> listByGroupForMember(@PathVariable Long groupId) {
+    public List<com.fasterxml.jackson.databind.node.ObjectNode> listByGroupForMember(@PathVariable Long groupId) {
         return expenses.listByGroup(groupId).stream()
-                .map(ExpenseController::toDto)
+                .map(e -> {
+
+                    var dto = toDto(e);
+                    com.fasterxml.jackson.databind.node.ObjectNode json = objectMapper.valueToTree(dto);
+                    var statusNode = json.get("status");
+                    if (statusNode != null && "SETTLED".equalsIgnoreCase(statusNode.asText())) {
+                        if (isExpenseFullyPaid(e)) {
+                            json.put("status", "COMPLETE");
+                        }
+                    }
+
+                    return json;
+                })
                 .toList();
     }
+
 
     @PreAuthorize("@perm.canCreateExpenseInGroup(#in.groupId())")
     @PostMapping
@@ -319,7 +323,7 @@ public class ExpenseController {
                 var userIdNode = node.get("userId");
                 if (userIdNode != null && userIdNode.isNumber() && userIdNode.asLong() == payerId) {
                     ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("settled", true);
-                    // ((ObjectNode) node).put("amountDue", 0);
+                    // ((ObjectNode) node).put("remaining", 0);
                 }
             }
         }
@@ -351,6 +355,47 @@ public class ExpenseController {
                 .body(pdf);
     }
 
+    /**
+     * เช็คว่า expense จ่ายครบหรือยัง โดยคิดเฉพาะเงินที่ "คนอื่น" ต้องจ่ายให้เจ้าของบิล
+     * ใช้ owedAmount ของแต่ละคน (ยกเว้น payer) รวมกันเป็น expectedFromOthers
+     */
+    private boolean isExpenseFullyPaid(Expense e) {
+        Long expenseId = e.getId();
+        Long payerId = e.getPayer().getId();
+
+        BigDecimal verifiedTotal = paymentService.sumVerified(expenseId);
+        if (verifiedTotal == null) {
+            verifiedTotal = BigDecimal.ZERO;
+        }
+
+        List<ExpenseSettlementDto> settlements = settlementService.allSettlements(expenseId);
+        if (settlements == null || settlements.isEmpty()) {
+            // fallback: ใช้ logic เดิมเทียบกับยอด items ทั้งหมด
+            Map<String, BigDecimal> rates = fx.getRatesToThb(e);
+            var items = itemService.listByExpense(expenseId);
+
+            BigDecimal itemsTotal = (items == null || items.isEmpty())
+                    ? BigDecimal.ZERO
+                    : items.stream()
+                    .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            return verifiedTotal.compareTo(itemsTotal) >= 0;
+        }
+
+        // ใช้ owedAmount ของทุกคนที่ไม่ใช่ payer เป็นยอดที่ "คนอื่น" ต้องจ่าย
+        BigDecimal expectedFromOthers = BigDecimal.ZERO;
+        for (ExpenseSettlementDto s : settlements) {
+            if (s.userId() != null
+                    && !s.userId().equals(payerId)
+                    && s.owedAmount() != null) {
+                expectedFromOthers = expectedFromOthers.add(s.owedAmount());
+            }
+        }
+
+        return verifiedTotal.compareTo(expectedFromOthers) >= 0;
+    }
+
     private static ExpenseDto toDto(Expense e){
         return new ExpenseDto(
                 e.getId(),
@@ -364,4 +409,3 @@ public class ExpenseController {
         );
     }
 }
-
