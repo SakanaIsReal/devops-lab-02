@@ -72,7 +72,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "my group", "receipt_1", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/123");
+            assertThat(url).isEqualTo("http://localhost/api/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -95,7 +95,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "img", "hero", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/123");
+            assertThat(url).isEqualTo("http://localhost/api/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -112,7 +112,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "misc-folder", "blob", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/123");
+            assertThat(url).isEqualTo("http://localhost/api/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -130,7 +130,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "docs", "   ", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/123");
+            assertThat(url).isEqualTo("http://localhost/api/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -163,7 +163,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "shots", "sc1", req("https","cdn.example.com",4443,"/upload"));
 
-            assertThat(url).isEqualTo("https://cdn.example.com:4443/files/123");
+            assertThat(url).isEqualTo("https://cdn.example.com:4443/api/files/123");
         }
 
         @Test
@@ -172,7 +172,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "imgs", "a", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("http://localhost/files/123");
+            assertThat(url).isEqualTo("http://localhost/api/files/123");
         }
 
         @Test
@@ -181,7 +181,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "imgs", "a", req("https","example.com",443,"/upload"));
 
-            assertThat(url).isEqualTo("https://example.com/files/123");
+            assertThat(url).isEqualTo("https://example.com/api/files/123");
         }
     }
 
@@ -199,7 +199,7 @@ class FileStorageServiceTest {
         void delete_existingId_true_andDeletes() {
             when(repo.existsById(999L)).thenReturn(true);
 
-            boolean ok = service.deleteByUrl("http://host/files/999");
+            boolean ok = service.deleteByUrl("http://host/api/files/999");
 
             assertThat(ok).isTrue();
             verify(repo).deleteById(999L);
@@ -209,7 +209,7 @@ class FileStorageServiceTest {
         void delete_nonExistingId_false() {
             when(repo.existsById(555L)).thenReturn(false);
 
-            boolean ok = service.deleteByUrl("http://x/files/555");
+            boolean ok = service.deleteByUrl("http://x/api/files/555");
 
             assertThat(ok).isFalse();
             verify(repo, never()).deleteById(any());
@@ -228,12 +228,23 @@ class FileStorageServiceTest {
         void delete_urlWithQueryOrExtraSegments_parsesIdOnly() {
             when(repo.existsById(42L)).thenReturn(true);
 
-            boolean ok1 = service.deleteByUrl("https://ex/files/42?x=1&y=2");
-            boolean ok2 = service.deleteByUrl("https://ex/files/42/anything");
+            boolean ok1 = service.deleteByUrl("https://ex/api/files/42?x=1&y=2");
+            boolean ok2 = service.deleteByUrl("https://ex/api/files/42/anything");
 
             assertThat(ok1).isTrue();
             assertThat(ok2).isTrue();
             verify(repo, times(2)).deleteById(42L);
+        }
+
+        @Test
+        void delete_legacyFilesPath_stillWorks_backwardsCompatibility() {
+            when(repo.existsById(100L)).thenReturn(true);
+
+            // Test that old /files/ URLs (without /api) still work
+            boolean ok = service.deleteByUrl("http://host/files/100");
+
+            assertThat(ok).isTrue();
+            verify(repo).deleteById(100L);
         }
     }
 }
