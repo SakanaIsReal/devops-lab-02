@@ -387,6 +387,8 @@ jobs:
     - name: Start Frontend
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      env:
+        PORT: 3000
       run: |
         Start-Process powershell -ArgumentList "-Command", "npm start" -WindowStyle Hidden
         Start-Sleep -Seconds 30
@@ -409,6 +411,10 @@ jobs:
             Start-Sleep -Seconds 5
           }
         }
+        if ($attempt -eq $maxAttempts) {
+          Write-Error "Frontend failed to start on port 3000 after $maxAttempts attempts"
+          exit 1
+        }
         $attempt = 0
         while ($attempt -lt $maxAttempts) {
           try {
@@ -422,6 +428,10 @@ jobs:
             Write-Host "Waiting for backend... (Attempt $attempt/$maxAttempts)"
             Start-Sleep -Seconds 5
           }
+        }
+        if ($attempt -eq $maxAttempts) {
+          Write-Error "Backend failed to start on port 16048 after $maxAttempts attempts"
+          exit 1
         }
 
     - name: Run Cypress E2E Tests
