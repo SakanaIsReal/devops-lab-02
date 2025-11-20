@@ -375,8 +375,35 @@ jobs:
 
         cd backend
         mvn clean package -DskipTests
-        Start-Process powershell -ArgumentList "-Command", "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048" -WindowStyle Hidden
+
+        # Start backend with output redirection to log file
+        $backendLogPath = Join-Path $PWD "backend-output.log"
+        Write-Host "Starting backend... (logs: $backendLogPath)"
+
+        $backendCmd = "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048 2>&1 | Tee-Object -FilePath '$backendLogPath'"
+
+        Start-Job -ScriptBlock {
+          param($cmd, $workDir)
+          Set-Location $workDir
+          Invoke-Expression $cmd
+        } -ArgumentList $backendCmd, $PWD | Out-Null
+
+        Write-Host "Backend started, waiting 40 seconds for initialization..."
         Start-Sleep -Seconds 40
+
+        # Check if backend is listening on port 16048
+        $backendPort = netstat -ano | Select-String ":16048.*LISTENING"
+        if ($backendPort) {
+          Write-Host "✓ Backend is listening on port 16048"
+        } else {
+          Write-Warning "✗ Backend is NOT listening on port 16048!"
+          Write-Host "`nBackend log (last 50 lines):"
+          if (Test-Path $backendLogPath) {
+            Get-Content $backendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "Log file not found"
+          }
+        }
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
@@ -387,12 +414,41 @@ jobs:
     - name: Start Frontend
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        PORT: 3003
       run: |
         $frontendPath = Get-Location
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; `$env:PORT='3003'; npm start" -WindowStyle Hidden
+        $frontendLogPath = Join-Path $frontendPath "frontend-output.log"
+        Write-Host "Starting frontend on port 3003... (logs: $frontendLogPath)"
+
+        # Start frontend using Start-Job with explicit PORT setting
+        Start-Job -ScriptBlock {
+          param($workDir, $logPath)
+          Set-Location $workDir
+          $env:PORT = "3003"
+          $env:BROWSER = "none"
+          npm start 2>&1 | Tee-Object -FilePath $logPath
+        } -ArgumentList $frontendPath, $frontendLogPath | Out-Null
+
+        Write-Host "Frontend started, waiting 60 seconds for initialization..."
         Start-Sleep -Seconds 60
+
+        # Check if frontend is listening on port 3003
+        $frontendPort = netstat -ano | Select-String ":3003.*LISTENING"
+        if ($frontendPort) {
+          Write-Host "✓ Frontend is listening on port 3003"
+        } else {
+          Write-Warning "✗ Frontend is NOT listening on port 3003!"
+          Write-Host "`nChecking if frontend is on default port 3000..."
+          $port3000 = netstat -ano | Select-String ":3000.*LISTENING"
+          if ($port3000) {
+            Write-Warning "Frontend is listening on port 3000 instead of 3003!"
+          }
+          Write-Host "`nFrontend log (last 50 lines):"
+          if (Test-Path $frontendLogPath) {
+            Get-Content $frontendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "Log file not found"
+          }
+        }
 
     - name: Verify Services Started
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -416,6 +472,10 @@ jobs:
         } else {
           Write-Warning "No java processes found!"
         }
+
+        # Show ALL listening ports (to see what's actually bound)
+        Write-Host "`nAll listening ports (showing common dev ports):"
+        netstat -ano | Select-String "LISTENING" | Select-String ":3000|:3003|:8080|:8081|:16048|:3307" | ForEach-Object { Write-Host "  $_" }
 
         # Check what's listening on critical ports
         Write-Host "`nPort 3003 (Frontend):"
@@ -452,6 +512,42 @@ jobs:
         }
 
         Write-Host "`n=== Verification Complete ==="
+
+    - name: Show Service Logs on Failure
+      if: always()
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        # Check if services are NOT running properly and show logs
+        $frontendRunning = netstat -ano | Select-String ":3003.*LISTENING"
+        $backendRunning = netstat -ano | Select-String ":16048.*LISTENING"
+
+        if (-not $frontendRunning) {
+          Write-Host "`n=========================================="
+          Write-Host "FRONTEND LOG (Not listening on port 3003)"
+          Write-Host "=========================================="
+          $frontendLog = Join-Path $env:GITHUB_WORKSPACE "frontend\frontend-output.log"
+          if (Test-Path $frontendLog) {
+            Get-Content $frontendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "Frontend log file not found at: $frontendLog"
+          }
+        }
+
+        if (-not $backendRunning) {
+          Write-Host "`n=========================================="
+          Write-Host "BACKEND LOG (Not listening on port 16048)"
+          Write-Host "=========================================="
+          $backendLog = Join-Path $env:GITHUB_WORKSPACE "backend\backend-output.log"
+          if (Test-Path $backendLog) {
+            Get-Content $backendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host "Backend log file not found at: $backendLog"
+          }
+        }
+
+        if ($frontendRunning -and $backendRunning) {
+          Write-Host "Both services are running properly, no logs needed"
+        }
 
     - name: Wait for Services
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
