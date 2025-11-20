@@ -192,20 +192,23 @@ export default function EqualSplitPage() {
         let rateNum: number | undefined = undefined;
 
         if (activeCurrency !== "THB") {
-            if (!showExchangeRateInput) {
-                alert("กรุณาติ๊ก 'Set Exchange Rate' เพื่อกำหนดอัตราแลกเปลี่ยน");
-                return;
-            }
+            // if (!showExchangeRateInput) {
+            //     alert("กรุณาติ๊ก 'Set Exchange Rate' เพื่อกำหนดอัตราแลกเปลี่ยน");
+            //     return;
+            // }
             if (currency === "CUSTOM" && !activeCurrency) {
                  alert("กรุณาระบุรหัสสกุลเงิน (e.g., EUR)");
                  return;
             }
-            rateNum = Number(exchangeRate);
+            if(showExchangeRateInput){
+                rateNum = Number(exchangeRate);
             if (!Number.isFinite(rateNum) || rateNum <= 0) {
                 alert("กรุณาระบุ Exchange Rate ให้ถูกต้อง (ต้องมากกว่า 0)");
                 return; 
             }
             amountInThb = amountNum * rateNum; 
+            }
+            
         }
 
         const exchangeRatesMap: { [key: string]: number } = { "THB": 1 };

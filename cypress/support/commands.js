@@ -12,26 +12,23 @@ import { ManualSplitLocator } from "../locators/manualSplitLocator.js";
 Cypress.Commands.add("signIn", (email, password) => {
     cy.log(`🔍 [ Start ]  Sign in with Valid Email `);
     cy.log(`⚠️  [ Expected ] : Sign-in Successfully`);
-    cy.session(
-        [email, password],
-        () => {
-            cy.visit(WebPageLocators.loginPage);
-            cy.get(LoginLocators.usernameInput).type(email);
-            cy.get(LoginLocators.passwordInput).type(password);
-            cy.xpath(LoginLocators.submitButton).click();
-            cy.url().should("include", WebPageLocators.homePage);
-        },
-        {
-            cacheAcrossSpecs: true,
-        }
-    );
-    cy.log(`✅ [ Actual ] : Sign-in Successfully`);
 
+    // --- ส่วนการทำงานจริง (ถอดออกมาจาก cy.session) ---
+    cy.visit(WebPageLocators.loginPage);
+    cy.get(LoginLocators.usernameInput).type(email);
+    cy.get(LoginLocators.passwordInput).type(password);
+    cy.xpath(LoginLocators.submitButton).click();
+    
+    // รอให้ URL เปลี่ยนเพื่อยืนยันว่าเข้าได้จริง
+    cy.url().should("include", WebPageLocators.homePage);
+    // -----------------------------------------------
+
+    cy.log(`✅ [ Actual ] : Sign-in Successfully`);
 });
 Cypress.Commands.add("signOut", () => {
     cy.visit(WebPageLocators.loginPage);
-    cy.get(LoginLocators.usernameInput).type('man@example.com');
-    cy.get(LoginLocators.passwordInput).type('123456');
+    cy.get(LoginLocators.usernameInput).type('nicetest@gmail.com');
+    cy.get(LoginLocators.passwordInput).type('gg');
     cy.xpath(LoginLocators.submitButton).click();
     cy.wait(6000)
     cy.get('[data-cy="User-account"]').click();
@@ -159,8 +156,8 @@ Cypress.Commands.add(
                 ).click();
             }
         }
-        cy.xpath('//button[text()="FINISH"]').click();
-        cy.xpath('//*[@id="root"]/div/div/div[1]/h1').should(
+        // cy.xpath('//button[text()="FINISH"]').click();
+        cy.xpath('//*[@id="root"]/div/div/div[1]/div/h1').should(
             "contain.text",
             "Bill Detail"
         );
@@ -173,13 +170,13 @@ Cypress.Commands.add("addExpenseManualSplit", (groupName, expenseName) => {
             method: "Equal",
             amount: "1500",
             itemname: "อาหาร",
-            participants: ["NavadolSom", "SukiKana"],
+            participants: ['testest', 'MxnlodySoTest'],
         },
         {
             method: "Percentage",
             amount: "1500",
             itemname: "Alcohol",
-            participants: ["NavadolSom", "SukiKana"],
+            participants: ['testest', 'MxnlodySoTest'],
             percent: [25, 25],
         },
     ];
@@ -204,16 +201,16 @@ Cypress.Commands.add("addExpenseManualSplit", (groupName, expenseName) => {
                 .clear()
                 .type(item.itemname);
             cy.xpath(
-                `.//summary[.//span[normalize-space(text())="Participants"]]`
-            ).click();
+                `/html/body/div/div/div/div[3]/div/div[4]/div/div/button`
+            ).last().click();
             item.participants.forEach((p) => {
                 cy.xpath(
                     `.//label[.//span[normalize-space(text())="${p}"]]//input[@type="checkbox"]`
                 ).check({ force: true });
             });
             cy.xpath(
-                `.//summary[.//span[contains(normalize-space(.),"Shared with")]]`
-            ).click();
+                `//*[@id="root"]/div/div/div[3]/div/div[4]/div/div/button/span[2]`
+            ).last().click();
             if (item.method === "Percentage" && item.percent) {
                 item.percent.forEach((value, i) => {
                     cy.xpath(`(.//input[@type="number"])[${i + 2}]`)
@@ -228,11 +225,11 @@ Cypress.Commands.add("addExpenseManualSplit", (groupName, expenseName) => {
 });
 Cypress.Commands.add("payExpenseFromDashboard", (expenseName) => {
     cy.visit(WebPageLocators.homePage);
-
+    cy.wait(10000)
     cy.xpath(
         `//div[contains(@class,"flex items-center justify-between")][.//p[contains(., "${expenseName}")]]//button[contains(., "Pay")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.get('input[type="file"]').attachFile("Mockreciept.png");
     cy.xpath('//*[@id="root"]/div/div/div[2]/button').click();
@@ -240,7 +237,7 @@ Cypress.Commands.add("payExpenseFromDashboard", (expenseName) => {
     cy.xpath(
         `//div[contains(@class,"flex items-center justify-between")][.//p[contains(., "${expenseName}")]]//button[contains(., "Pay")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.contains("Pending Payment Exists").should("be.visible");
 });
@@ -250,19 +247,21 @@ Cypress.Commands.add("payExpenseFromGroup", (groupName, expenseName) => {
         `//h2[contains(normalize-space(.),"${groupName.trim()}")]//ancestor::a//button[contains(text(),"View")]`,
         { timeout: 10000 }
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
 
     cy.xpath(
         `//div[contains(@class,"flex items-center justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.xpath(
-        `//div[contains(@class,"flex items-center justify-between")]//button[contains(., "Pay")]`
+        `//div[contains(@class,"flex items-center justify-between")]//button[contains(., "Pay")]`,
+        { timeout: 10000 }
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
+    cy.wait(10000);
     cy.get('input[type="file"]').attachFile("Mockreciept.png");
     cy.xpath('//*[@id="root"]/div/div/div[2]/button').click();
 
@@ -271,56 +270,194 @@ Cypress.Commands.add("payExpenseFromGroup", (groupName, expenseName) => {
         `//h2[contains(normalize-space(.),"${groupName.trim()}")]//ancestor::a//button[contains(text(),"View")]`,
         { timeout: 10000 }
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.xpath(
         `//div[contains(@class,"flex items-center justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.xpath(
         `//div[contains(@class,"flex items-center justify-between")]//button[contains(., "Pay")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
     cy.contains("Pending Payment Exists").should("be.visible");
 });
 
 Cypress.Commands.add("conFirmExpensePay", (groupName, expenseName, participants) => {
+    // 1. เข้าหน้า Group และกด View
     cy.visit(WebPageLocators.groupsPage);
-    cy.xpath(`//h2[contains(normalize-space(.),"${groupName.trim()}")]//ancestor::a//button[contains(text(),"View")]`, { timeout: 10000 })
-        .should('be.visible')
+    cy.xpath(`//h2[contains(normalize-space(.),"${groupName.trim()}")]/ancestor::a//button[contains(text(),"View")]`, { timeout: 10000 })
+        .should('be.visible').first()
         .click();
+
+    // 2. กด Detail ของ Expense นั้น
     cy.xpath(
-        `//div[contains(@class,"flex items-center justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
+        `//div[contains(@class,"justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
     )
+        .should("be.visible").first()
+        .click();
+
+    // 3. วนลูปกด Verify ให้แต่ละคน
+    for (const name of participants) {
+        const cleanName = name.trim();
+        cy.log(`🔍 Verifying for ${cleanName}`);
+
+        // --- 🔥 จุดที่แก้ไข: แก้ XPath ให้หาจาก Text ชื่อคน โดยไม่ยึดติดกับ Class มากเกินไป ---
+        cy.xpath(
+            `//div[contains(@class, "justify-between")][.//p[contains(text(), "${cleanName}")]]//button[contains(text(), "Verify")]`, 
+            { timeout: 10000 }
+        )
         .should("be.visible")
         .click();
-    for (const name of participants) {
-        cy.log(`🔍 Verifying for ${name}`);
 
-        cy.xpath(`//div[contains(@class,"flex items-center justify-between")][.//p[@class="font-semibold" and normalize-space(text())="${name}"]]//button[contains(., "Verify")]`, { timeout: 10000 })
-            .should("be.visible")
-            .click();
+        // กด Accept (ใน Modal หรือ Popup)
         cy.xpath('//button[normalize-space()="Accept"]', { timeout: 5000 })
             .should("be.visible")
             .click();
-        cy.wait(500);
+            
+        cy.wait(500); // รอ Animation นิดหน่อย
     }
+
+    // ---------------------------------------------------------
+    // ส่วนด้านล่างนี้คือการกลับเข้ามาหน้าเดิมเพื่อกด Done (ตาม Logic เดิมของคุณ)
+    // ถ้า Flow จริงๆ ไม่ต้อง Refresh หน้า ก็สามารถลบส่วนนี้ออกได้
+    // ---------------------------------------------------------
+    
     cy.visit(WebPageLocators.groupsPage);
-    cy.xpath(`//h2[contains(normalize-space(.),"${groupName.trim()}")]//ancestor::a//button[contains(text(),"View")]`, { timeout: 10000 })
-        .should('be.visible')
+    cy.xpath(`//h2[contains(normalize-space(.),"${groupName.trim()}")]/ancestor::a//button[contains(text(),"View")]`, { timeout: 10000 })
+        .should('be.visible').first()
         .click();
+    
     cy.xpath(
-        `//div[contains(@class,"flex items-center justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
+        `//div[contains(@class,"justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
     )
-        .should("be.visible")
+        .should("be.visible").first()
         .click();
 
     for (const name of participants) {
-        cy.log(`🔍 Verifying for ${name}`);
-        cy.xpath(`//div[contains(@class,"flex items-center justify-between")][.//p[@class="font-semibold" and normalize-space(text())="${name}"]]//button[contains(., "Done")]`, { timeout: 10000 })
-            .should("be.visible")
-            .click();
+        const cleanName = name.trim();
+        cy.log(`🔍 Marking Done for ${cleanName}`);
+        
+        // ใช้ Logic เดียวกันกับ Verify คือหาจากกล่องที่มีชื่อคนนั้น
+        cy.xpath(
+            `//div[contains(@class, "justify-between")][.//p[contains(text(), "${cleanName}")]]//button[contains(text(), "Done")]`, 
+            { timeout: 10000 }
+        )
+        .should("be.visible")
+        .click();
     }
 });
+
+
+Cypress.Commands.add("createNewGroupAnotheruser", (groupName, paticipant,another) => {
+    cy.visit(WebPageLocators.groupsPage);
+    cy.xpath(GroupAddLocator.groupAddButton).click();
+    cy.xpath(GroupAddLocator.groupNameInputBox).type(groupName);
+    cy.get('input[type="file"]').attachFile("banyai_dreamworld.jpg");
+    cy.wait(1000);
+    for (let i = 0; i < paticipant.length; i++) {
+        cy.xpath(GroupAddLocator.participantInputBox).type(paticipant[i]);
+        cy.wait(1000);
+        cy.xpath(`//ul//li[normalize-space(text())="${paticipant[i]}"]`).click();
+        cy.wait(1000);
+    }
+    cy.xpath(GroupAddLocator.praticipantAnotherInput).type(another);
+    cy.xpath(GroupAddLocator.praticipantAnotherClick).click();
+    cy.xpath(GroupAddLocator.createGroupButton).click();
+    cy.xpath(GroupAddLocator.groupNameHeader).should("contain.text", groupName);
+    cy.xpath('//*[@id="root"]/div/nav[2]/div/button[2]').click();
+});
+
+Cypress.Commands.add("InvalidInput", (groupName, paticipant) => {
+    cy.visit(WebPageLocators.groupsPage);
+    cy.xpath(GroupAddLocator.groupAddButton).click();
+    cy.xpath(GroupAddLocator.groupNameInputBox).type(groupName);
+    cy.get('input[type="file"]').attachFile("banyai_dreamworld.jpg");
+    cy.wait(1000);
+    cy.xpath(GroupAddLocator.participantInputBox).type(paticipant);
+    cy.wait(5000);
+    cy.xpath(`//*[@id="root"]/div/div/div/div/div/div[3]/div/ul/li[1]`).click();
+    cy.wait(5000);
+});
+ 
+Cypress.Commands.add("checkTotalbill", (groupName, expenseName) => {
+    cy.visit(WebPageLocators.groupsPage);
+    cy.xpath(
+        `//h2[contains(normalize-space(.),"${groupName.trim()}")]//ancestor::a//button[contains(text(),"View")]`,
+        { timeout: 10000 }
+    )
+        .should("be.visible").first()
+        .click();
+
+    cy.xpath(
+        `//div[contains(@class,"flex items-center justify-between")][.//h3[contains(.,"${expenseName.trim()}")]]//button[contains(., "Detail")]`
+    )
+        .should("be.visible").first()
+        .click();
+    cy.xpath('//*[@id="root"]/div/div/div[2]/div[2]/div[2]/div').should(
+        "contain.text",
+        "Transactions Left"
+    )
+});
+
+Cypress.Commands.add(
+    "addcurrencyUSD",
+    (groupName, expenseName, totalAmount, except) => {
+        cy.visit(WebPageLocators.groupsPage);
+        cy.xpath(
+            `//h2[text()="${groupName}"]/ancestor::a//button[contains(text(),"View")]`
+        ).click();
+        cy.xpath(ExpenseLocator.expenseAddButton).click();
+        cy.xpath(ExpenseLocator.equalSplit).click();
+        cy.xpath(EquallySplitLocator.ExpenseNameInputBox).type(expenseName);
+        cy.xpath(EquallySplitLocator.TotalAmountInputBox).type(totalAmount);
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/button').click();
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/div/label[2]').click();
+        cy.xpath('//*[@id="root"]/div/div/div[4]/button/span[1]').click();
+        cy.wait(5000);
+        cy.xpath('//*[@id="root"]/div/div/button[2]').click();
+    }
+);
+
+Cypress.Commands.add(
+    "setExchageRate",
+    (groupName, expenseName, totalAmount,rate) => {
+        cy.visit(WebPageLocators.groupsPage);
+        cy.xpath(
+            `//h2[text()="${groupName}"]/ancestor::a//button[contains(text(),"View")]`
+        ).click();
+        cy.xpath(ExpenseLocator.expenseAddButton).click();
+        cy.xpath(ExpenseLocator.equalSplit).click();
+        cy.xpath(EquallySplitLocator.ExpenseNameInputBox).type(expenseName);
+        cy.xpath(EquallySplitLocator.TotalAmountInputBox).type(totalAmount);
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/button').click();
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/div/label[2]').click();
+        cy.xpath('//*[@id="root"]/div/div/div[4]/button/span[1]').click();
+        cy.xpath('//*[@id="root"]/div/div/div[3]/label/span').click();
+        cy.xpath('//*[@id="root"]/div/div/div[4]/div[1]/input').type(rate);
+        cy.wait(5000);
+        cy.xpath('//*[@id="root"]/div/div/button[2]').click();
+    }
+);
+
+Cypress.Commands.add(
+    "addAnothercurrency",
+    (groupName, expenseName, totalAmount, currency) => {
+        cy.visit(WebPageLocators.groupsPage);
+        cy.xpath(
+            `//h2[text()="${groupName}"]/ancestor::a//button[contains(text(),"View")]`
+        ).click();
+        cy.xpath(ExpenseLocator.expenseAddButton).click();
+        cy.xpath(ExpenseLocator.equalSplit).click();
+        cy.xpath(EquallySplitLocator.ExpenseNameInputBox).type(expenseName);
+        cy.xpath(EquallySplitLocator.TotalAmountInputBox).type(totalAmount);
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/button').click();
+        cy.xpath('//*[@id="root"]/div/div/div[2]/div/div/label[4]').click();
+        cy.xpath('//*[@id="root"]/div/div/div[2]/input').type(currency);
+        cy.xpath('//*[@id="root"]/div/div/div[4]/button/span[1]').click(); 
+        cy.wait(5000);
+        cy.xpath('//*[@id="root"]/div/div/button[2]').click();
+    }
+);
