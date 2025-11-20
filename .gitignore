@@ -35,3 +35,5 @@ Thumbs.db
 cypress/downloads/
 cypress/screenshots/
 cypress/videos/
+
+/actions_log
