@@ -376,31 +376,21 @@ jobs:
         cd backend
         mvn clean package -DskipTests
 
-        # Verify JAR was created
-        $jarFile = "target/smartsplit-back-0.0.1-SNAPSHOT.jar"
-        if (-not (Test-Path $jarFile)) {
-          Write-Error "Backend JAR file was not created at: $jarFile"
-          Write-Host "Contents of target directory:"
-          Get-ChildItem target -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime
-          exit 1
-        }
-        Write-Host "Backend JAR created successfully: $jarFile"
-
         # Start backend with output redirection to log file
         $backendLogPath = Join-Path $PWD "backend-output.log"
         $backendErrPath = Join-Path $PWD "backend-error.log"
         Write-Host "Starting backend... (logs: $backendLogPath)"
 
         Start-Job -ScriptBlock {
-          param($port, $secret, $logPath, $workDir, $jarPath)
+          param($port, $secret, $logPath, $workDir)
           Set-Location $workDir
-          java -jar $jarPath `
+          java -jar target/*.jar `
             --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
             --spring.datasource.username=root `
             --spring.datasource.password=rootpassword `
             --app.jwt.secret=$secret `
             --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD, $jarFile | Out-Null
+        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD | Out-Null
 
         # Start backend using Start-Process with separate error capture
         $backendProcess = Start-Process -FilePath "java" `
@@ -513,21 +503,14 @@ jobs:
         $frontendErrPath = Join-Path $frontendPath "frontend-error.log"
         Write-Host "Starting frontend on port 3003... (logs: $frontendLogPath)"
 
-        # Set environment variables
-        $env:PORT = "3003"
-        $env:BROWSER = "none"
-        $env:CI = "false"
-
-        # Start frontend using Start-Process with separate error capture
-        $frontendProcess = Start-Process -FilePath "npm" `
-          -ArgumentList "start" `
-          -WorkingDirectory $frontendPath `
-          -RedirectStandardOutput $frontendLogPath `
-          -RedirectStandardError $frontendErrPath `
-          -WindowStyle Hidden `
-          -PassThru
-
-        Write-Host "Frontend process started with PID: $($frontendProcess.Id)"
+        # Start frontend using Start-Job with explicit PORT setting
+        Start-Job -ScriptBlock {
+          param($workDir, $logPath)
+          Set-Location $workDir
+          $env:PORT = "3003"
+          $env:BROWSER = "none"
+          npm start 2>&1 | Tee-Object -FilePath $logPath
+        } -ArgumentList $frontendPath, $frontendLogPath | Out-Null
 
         # Wait 10 seconds then check if process is still running
         Start-Sleep -Seconds 10
