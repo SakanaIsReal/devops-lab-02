@@ -380,13 +380,16 @@ jobs:
         $backendLogPath = Join-Path $PWD "backend-output.log"
         Write-Host "Starting backend... (logs: $backendLogPath)"
 
-        $backendCmd = "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048 2>&1 | Tee-Object -FilePath '$backendLogPath'"
-
         Start-Job -ScriptBlock {
-          param($cmd, $workDir)
+          param($port, $secret, $logPath, $workDir)
           Set-Location $workDir
-          Invoke-Expression $cmd
-        } -ArgumentList $backendCmd, $PWD | Out-Null
+          java -jar target/*.jar `
+            --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
+            --spring.datasource.username=root `
+            --spring.datasource.password=rootpassword `
+            --app.jwt.secret=$secret `
+            --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
+        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD | Out-Null
 
         Write-Host "Backend started, waiting 40 seconds for initialization..."
         Start-Sleep -Seconds 40
@@ -394,10 +397,10 @@ jobs:
         # Check if backend is listening on port 16048
         $backendPort = netstat -ano | Select-String ":16048.*LISTENING"
         if ($backendPort) {
-          Write-Host "✓ Backend is listening on port 16048"
+          Write-Host "Backend is listening on port 16048"
         } else {
-          Write-Warning "✗ Backend is NOT listening on port 16048!"
-          Write-Host "`nBackend log (last 50 lines):"
+          Write-Warning "Backend is NOT listening on port 16048!"
+          Write-Host "Backend log (last 50 lines):"
           if (Test-Path $backendLogPath) {
             Get-Content $backendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
           } else {
@@ -434,15 +437,15 @@ jobs:
         # Check if frontend is listening on port 3003
         $frontendPort = netstat -ano | Select-String ":3003.*LISTENING"
         if ($frontendPort) {
-          Write-Host "✓ Frontend is listening on port 3003"
+          Write-Host "Frontend is listening on port 3003"
         } else {
-          Write-Warning "✗ Frontend is NOT listening on port 3003!"
-          Write-Host "`nChecking if frontend is on default port 3000..."
+          Write-Warning "Frontend is NOT listening on port 3003!"
+          Write-Host "Checking if frontend is on default port 3000..."
           $port3000 = netstat -ano | Select-String ":3000.*LISTENING"
           if ($port3000) {
             Write-Warning "Frontend is listening on port 3000 instead of 3003!"
           }
-          Write-Host "`nFrontend log (last 50 lines):"
+          Write-Host "Frontend log (last 50 lines):"
           if (Test-Path $frontendLogPath) {
             Get-Content $frontendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
           } else {
@@ -522,10 +525,11 @@ jobs:
         $backendRunning = netstat -ano | Select-String ":16048.*LISTENING"
 
         if (-not $frontendRunning) {
-          Write-Host "`n=========================================="
+          Write-Host ""
+          Write-Host "=========================================="
           Write-Host "FRONTEND LOG (Not listening on port 3003)"
           Write-Host "=========================================="
-          $frontendLog = Join-Path $env:GITHUB_WORKSPACE "frontend\frontend-output.log"
+          $frontendLog = Join-Path $env:GITHUB_WORKSPACE "frontend" | Join-Path -ChildPath "frontend-output.log"
           if (Test-Path $frontendLog) {
             Get-Content $frontendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
           } else {
@@ -534,10 +538,11 @@ jobs:
         }
 
         if (-not $backendRunning) {
-          Write-Host "`n=========================================="
+          Write-Host ""
+          Write-Host "=========================================="
           Write-Host "BACKEND LOG (Not listening on port 16048)"
           Write-Host "=========================================="
-          $backendLog = Join-Path $env:GITHUB_WORKSPACE "backend\backend-output.log"
+          $backendLog = Join-Path $env:GITHUB_WORKSPACE "backend" | Join-Path -ChildPath "backend-output.log"
           if (Test-Path $backendLog) {
             Get-Content $backendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
           } else {
