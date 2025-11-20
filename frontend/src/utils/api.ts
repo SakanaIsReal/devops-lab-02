@@ -54,7 +54,29 @@ export async function resolveImageUrl(url: string | undefined): Promise<string> 
   if (imageCache.has(url)) return imageCache.get(url)!;
 
   try {
-    // Use the URL as-is - axios baseURL handles the routing
+    // For absolute URLs (from minikube tunnel), use native fetch to preserve full URL including port
+    // Axios baseURL configuration interferes with absolute URLs and strips the port
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const token = getToken();
+      const response = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        console.error('Failed to load image:', url, response.status, response.statusText);
+        return '';
+      }
+
+      const dataUrl = await response.text();
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+        imageCache.set(url, dataUrl);
+        return dataUrl;
+      }
+      console.warn('Image response was not a DataURL:', { url, preview: dataUrl?.substring(0, 100) });
+      return '';
+    }
+
+    // For relative URLs, use axios instance (proxy will handle routing)
     const response = await api.get(url, {
       responseType: 'text',
     });

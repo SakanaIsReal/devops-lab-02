@@ -271,6 +271,60 @@ The E2E test suite (`cypress/e2e/SmartSplit-E2E.cy.js`) covers:
 - Expense management (equal split and manual split)
 - Payment processing and verification
 
+## Network Ports
+
+SmartSplit uses different port configurations for local development and Kubernetes deployment. **For complete details, see [docs/PORT_CONFIGURATION.md](docs/PORT_CONFIGURATION.md)**.
+
+### Quick Port Reference
+
+| Port | Environment | Service | Access URL |
+|------|-------------|---------|------------|
+| **3000** | Local Dev, CI/CD | Frontend Dev Server | http://localhost:3000 |
+| **3003** | Minikube | Frontend (Port Forward) | http://localhost:3003 |
+| **8080** | Docker Compose | Frontend (nginx) | http://localhost:8080 |
+| **8081** | Docker Compose | Backend (Spring Boot) | http://localhost:8081/api |
+| **16048** | Minikube, CI/CD | Backend (Port Forward) | http://localhost:16048/api |
+| **8082** | Docker, Minikube | MySQL | localhost:8082 |
+| **3306** | Internal Only | MySQL (Container) | - |
+
+### Port Diagnostic Tools
+
+Check which ports are in use:
+
+```powershell
+# Windows
+.\scripts\check-ports.ps1
+```
+
+```bash
+# Linux/Mac
+./scripts/check-ports.sh
+```
+
+These scripts show:
+- Which SmartSplit ports are currently in use
+- What processes are using each port
+- Active Docker containers and kubectl port-forwards
+- Helpful commands for managing services
+
+### Common Port Issues
+
+**Frontend cannot reach backend:**
+- Ensure backend is running on the expected port
+- Docker Compose backend: `localhost:8081`
+- Minikube backend (port-forward): `localhost:16048`
+- Frontend `package.json` proxy should match backend port
+
+**Port already in use:**
+- Run diagnostic script to identify conflicting process
+- Kill conflicting process or use alternative port
+- Docker Compose conflicts: Stop with `docker-compose down`
+- Kubernetes port-forward conflicts: Run `.\scripts\stop-port-forward.ps1`
+
+**Known Issue:** `frontend/package.json` proxy points to `localhost:16048`, but Docker Compose backend uses `localhost:8081`. This breaks local frontend development with Docker Compose backend. See [docs/PORT_CONFIGURATION.md](docs/PORT_CONFIGURATION.md#known-issues--mismatches) for details and workarounds.
+
+For detailed port configuration flows, troubleshooting, and environment-specific setups, refer to the comprehensive [Network Port Configuration Guide](docs/PORT_CONFIGURATION.md).
+
 ## Key Technical Details
 
 ### Backend Testing Strategy
@@ -283,10 +337,6 @@ The backend API uses `/api` as the base path for all endpoints (configured in Ku
 
 ### Database Migrations
 Flyway handles database schema versioning. Migration files are in `backend/src/main/resources/db/migration/` following the pattern `V<version>__<description>.sql`.
-
-### Known Issues
-- API routing may have errors when using separated ports (fixed by using reverse proxy per commit be3123c)
-- Frontend proxy set to specific port (16048) for backend communication
 
 ## Branch Strategy
 
