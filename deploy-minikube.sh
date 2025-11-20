@@ -21,13 +21,13 @@ eval $(minikube docker-env)
 
 # Build Docker images with specified tag (default: latest)
 echo -e "\033[33mBuilding Docker images with tag: $IMAGE_TAG...\033[0m"
-docker build -t "backend:$IMAGE_TAG" ./backend
-docker build -t "frontend:$IMAGE_TAG" ./frontend
+docker build -t "sakanaisreal/smartsplit-backend:$IMAGE_TAG" ./backend
+docker build -t "sakanaisreal/smartsplit-frontend:$IMAGE_TAG" ./frontend
 
 # Tag as :latest as well for local development convenience
 if [ "$IMAGE_TAG" != "latest" ]; then
-    docker tag "backend:$IMAGE_TAG" backend:latest
-    docker tag "frontend:$IMAGE_TAG" frontend:latest
+    docker tag "sakanaisreal/smartsplit-backend:$IMAGE_TAG" sakanaisreal/smartsplit-backend:latest
+    docker tag "sakanaisreal/smartsplit-frontend:$IMAGE_TAG" sakanaisreal/smartsplit-frontend:latest
 fi
 
 # Create namespace

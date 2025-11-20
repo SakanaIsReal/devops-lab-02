@@ -23,13 +23,13 @@ minikube docker-env | Invoke-Expression
 
 # Build Docker images with specified tag (default: latest)
 Write-Host "Building Docker images with tag: $ImageTag..." -ForegroundColor Yellow
-docker build -t "backend:$ImageTag" ./backend
-docker build -t "frontend:$ImageTag" ./frontend
+docker build -t "sakanaisreal/smartsplit-backend:$ImageTag" ./backend
+docker build -t "sakanaisreal/smartsplit-frontend:$ImageTag" ./frontend
 
 # Tag as :latest as well for local development convenience
 if ($ImageTag -ne "latest") {
-    docker tag "backend:$ImageTag" backend:latest
-    docker tag "frontend:$ImageTag" frontend:latest
+    docker tag "sakanaisreal/smartsplit-backend:$ImageTag" sakanaisreal/smartsplit-backend:latest
+    docker tag "sakanaisreal/smartsplit-frontend:$ImageTag" sakanaisreal/smartsplit-frontend:latest
 }
 
 # Create namespace

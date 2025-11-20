@@ -16,13 +16,6 @@ spec:
             name: backend
             port:
               number: 8081
-      - path: /files
-        pathType: Prefix
-        backend:
-          service:
-            name: backend
-            port:
-              number: 8081
       - path: /
         pathType: Prefix
         backend:

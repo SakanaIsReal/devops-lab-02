@@ -54,9 +54,8 @@ export async function resolveImageUrl(url: string | undefined): Promise<string> 
   if (imageCache.has(url)) return imageCache.get(url)!;
 
   try {
-    // If URL includes API_BASE_URL prefix, strip it for relative fetching
-    const fetchUrl = url.replace(API_BASE_URL, '');
-    const response = await api.get(fetchUrl, {
+    // Use the URL as-is - axios baseURL handles the routing
+    const response = await api.get(url, {
       responseType: 'text',
     });
     const dataUrl = response.data;
@@ -66,12 +65,18 @@ export async function resolveImageUrl(url: string | undefined): Promise<string> 
     }
     // If backend returned a plain url, return it (but avoid caching non-data URLs unless desired)
     if (typeof dataUrl === 'string') {
+      console.warn('Image response was not a DataURL:', { url, preview: dataUrl?.substring(0, 100) });
       imageCache.set(url, dataUrl);
       return dataUrl;
     }
+    console.warn('Image response had unexpected format:', { url, type: typeof dataUrl });
     return '';
-  } catch (error) {
-    console.error('Failed to load image from:', url, error);
+  } catch (error: any) {
+    console.error('Failed to load image from:', url, {
+      status: error?.response?.status,
+      statusText: error?.response?.statusText,
+      message: error?.message
+    });
     return '';
   }
 }
