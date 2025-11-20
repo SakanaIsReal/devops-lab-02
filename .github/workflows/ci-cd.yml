@@ -388,36 +388,115 @@ jobs:
 
         # Start backend with output redirection to log file
         $backendLogPath = Join-Path $PWD "backend-output.log"
+        $backendErrPath = Join-Path $PWD "backend-error.log"
         Write-Host "Starting backend... (logs: $backendLogPath)"
 
-        Start-Job -ScriptBlock {
-          param($port, $secret, $logPath, $workDir, $jarPath)
-          Set-Location $workDir
-          java -jar $jarPath `
-            --spring.profiles.active=prod `
-            --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
-            --spring.datasource.username=root `
-            --spring.datasource.password=rootpassword `
-            --app.jwt.secret=$secret `
-            --server.port=16048 `
-            --LOGGING_LOKI_ENABLED=false 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD, $jarFile | Out-Null
+        # Build the argument list for java
+        $javaArgs = @(
+          "-jar", $jarFile,
+          "--spring.profiles.active=prod",
+          "--spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db",
+          "--spring.datasource.username=root",
+          "--spring.datasource.password=rootpassword",
+          "--app.jwt.secret=$($env:APP_JWT_SECRET)",
+          "--server.port=16048",
+          "--LOGGING_LOKI_ENABLED=false"
+        )
 
-        Write-Host "Backend started, waiting 40 seconds for initialization..."
-        Start-Sleep -Seconds 40
+        # Start backend using Start-Process with separate error capture
+        $backendProcess = Start-Process -FilePath "java" `
+          -ArgumentList $javaArgs `
+          -WorkingDirectory $PWD `
+          -RedirectStandardOutput $backendLogPath `
+          -RedirectStandardError $backendErrPath `
+          -WindowStyle Hidden `
+          -PassThru
 
-        # Check if backend is listening on port 16048
-        $backendPort = netstat -ano | Select-String ":16048.*LISTENING"
-        if ($backendPort) {
-          Write-Host "Backend is listening on port 16048"
-        } else {
-          Write-Warning "Backend is NOT listening on port 16048!"
-          Write-Host "Backend log (last 50 lines):"
+        Write-Host "Backend process started with PID: $($backendProcess.Id)"
+        Write-Host "Waiting for backend initialization..."
+
+        # Wait for backend to be ready (check every 5 seconds, up to 60 seconds)
+        $maxWait = 12  # 12 * 5 = 60 seconds
+        $waited = 0
+        $backendReady = $false
+
+        while ($waited -lt $maxWait) {
+          Start-Sleep -Seconds 5
+          $waited++
+
+          # Check if process is still running
+          if ($backendProcess.HasExited) {
+            Write-Error "Backend process exited unexpectedly!"
+            Write-Host "Exit code: $($backendProcess.ExitCode)"
+            Write-Host "`n=== Backend Standard Output ==="
+            if (Test-Path $backendLogPath) {
+              Get-Content $backendLogPath | ForEach-Object { Write-Host $_ }
+            }
+            Write-Host "`n=== Backend Standard Error ==="
+            if (Test-Path $backendErrPath) {
+              Get-Content $backendErrPath | ForEach-Object { Write-Host $_ }
+            }
+            exit 1
+          }
+
+          # Check if port is listening
+          $portCheck = netstat -ano | Select-String ":16048.*LISTENING"
+          if ($portCheck) {
+            Write-Host "Backend is listening on port 16048 after $($waited * 5) seconds ✓"
+            # Wait additional 10 seconds for full initialization
+            Start-Sleep -Seconds 10
+            $backendReady = $true
+            break
+          }
+
+          Write-Host "Waiting for backend... ($waited/$maxWait)"
+        }
+
+        if (-not $backendReady) {
+          Write-Error "Backend did not start listening on port 16048 within 60 seconds"
+          Write-Host "`n=== Backend Standard Output (last 50 lines) ==="
           if (Test-Path $backendLogPath) {
             Get-Content $backendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
-          } else {
-            Write-Host "Log file not found"
           }
+          Write-Host "`n=== Backend Standard Error ==="
+          if (Test-Path $backendErrPath) {
+            Get-Content $backendErrPath | ForEach-Object { Write-Host $_ }
+          }
+          exit 1
+        }
+
+        # Verify HTTP health endpoint is accessible
+        Write-Host "Verifying backend health endpoint..."
+        $healthCheckAttempts = 10
+        $healthCheckSuccess = $false
+
+        for ($i = 1; $i -le $healthCheckAttempts; $i++) {
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:16048/api/actuator/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            if ($response.StatusCode -eq 200) {
+              Write-Host "Backend health check passed ✓"
+              $healthCheckSuccess = $true
+              break
+            }
+          } catch {
+            Write-Host "Health check attempt $i/$healthCheckAttempts failed: $($_.Exception.Message)"
+            if ($i -lt $healthCheckAttempts) {
+              Start-Sleep -Seconds 3
+            }
+          }
+        }
+
+        if (-not $healthCheckSuccess) {
+          Write-Error "Backend health check failed after $healthCheckAttempts attempts"
+          Write-Host "`n=== Backend Standard Output (last 50 lines) ==="
+          if (Test-Path $backendLogPath) {
+            Get-Content $backendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
+          }
+          Write-Host "`n=== Backend Standard Error ==="
+          if (Test-Path $backendErrPath) {
+            Get-Content $backendErrPath | ForEach-Object { Write-Host $_ }
+          }
+          exit 1
         }
 
     - name: Install Frontend Dependencies
@@ -432,33 +511,49 @@ jobs:
       run: |
         $frontendPath = Get-Location
         $frontendLogPath = Join-Path $frontendPath "frontend-output.log"
+        $frontendErrPath = Join-Path $frontendPath "frontend-error.log"
         Write-Host "Starting frontend on port 3003... (logs: $frontendLogPath)"
 
-        # Set environment variables at process level for better reliability
+        # Set environment variables
         $env:PORT = "3003"
         $env:BROWSER = "none"
+        $env:CI = "false"
 
-        # Start frontend using Start-Process with explicit environment
-        $processInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $processInfo.FileName = "cmd.exe"
-        $processInfo.Arguments = "/c npm start > `"$frontendLogPath`" 2>&1"
-        $processInfo.WorkingDirectory = $frontendPath
-        $processInfo.UseShellExecute = $false
-        $processInfo.CreateNoWindow = $true
-        $processInfo.EnvironmentVariables["PORT"] = "3003"
-        $processInfo.EnvironmentVariables["BROWSER"] = "none"
+        # Start frontend using Start-Process with separate error capture
+        $frontendProcess = Start-Process -FilePath "npm" `
+          -ArgumentList "start" `
+          -WorkingDirectory $frontendPath `
+          -RedirectStandardOutput $frontendLogPath `
+          -RedirectStandardError $frontendErrPath `
+          -WindowStyle Hidden `
+          -PassThru
 
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $processInfo
-        $process.Start() | Out-Null
+        Write-Host "Frontend process started with PID: $($frontendProcess.Id)"
 
-        Write-Host "Frontend started, waiting 60 seconds for initialization..."
-        Start-Sleep -Seconds 60
+        # Wait 10 seconds then check if process is still running
+        Start-Sleep -Seconds 10
+
+        if ($frontendProcess.HasExited) {
+          Write-Error "Frontend process exited immediately!"
+          Write-Host "Exit code: $($frontendProcess.ExitCode)"
+          Write-Host "`n=== Frontend Standard Output ==="
+          if (Test-Path $frontendLogPath) {
+            Get-Content $frontendLogPath | ForEach-Object { Write-Host $_ }
+          }
+          Write-Host "`n=== Frontend Standard Error ==="
+          if (Test-Path $frontendErrPath) {
+            Get-Content $frontendErrPath | ForEach-Object { Write-Host $_ }
+          }
+          exit 1
+        }
+
+        Write-Host "Frontend process still running, waiting for initialization..."
+        Start-Sleep -Seconds 50  # Total 60 seconds
 
         # Check if frontend is listening on port 3003
         $frontendPort = netstat -ano | Select-String ":3003.*LISTENING"
         if ($frontendPort) {
-          Write-Host "Frontend is listening on port 3003"
+          Write-Host "Frontend is listening on port 3003 ✓"
         } else {
           Write-Warning "Frontend is NOT listening on port 3003!"
           Write-Host "Checking if frontend is on default port 3000..."
@@ -466,11 +561,15 @@ jobs:
           if ($port3000) {
             Write-Warning "Frontend is listening on port 3000 instead of 3003!"
           }
-          Write-Host "Frontend log (last 50 lines):"
+          Write-Host "`n=== Frontend Standard Output (last 50 lines) ==="
           if (Test-Path $frontendLogPath) {
             Get-Content $frontendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
           } else {
             Write-Host "Log file not found"
+          }
+          Write-Host "`n=== Frontend Standard Error ==="
+          if (Test-Path $frontendErrPath) {
+            Get-Content $frontendErrPath | ForEach-Object { Write-Host $_ }
           }
         }
 
