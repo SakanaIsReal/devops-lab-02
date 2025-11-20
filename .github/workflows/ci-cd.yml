@@ -123,9 +123,9 @@ jobs:
           Write-Host "Could not check port exclusions (non-critical)"
         }
 
-        # Kill any processes using critical ports (MySQL: 3307, Backend: 16048, Frontend: 3000)
+        # Kill any processes using critical ports (MySQL: 3307, Backend: 16048, Frontend: 3003)
         Write-Host "`nChecking and killing processes on critical ports..."
-        $ports = @(3307, 16048, 3000)
+        $ports = @(3307, 16048, 3003)
         foreach ($port in $ports) {
           # Check for both LISTENING and TIME_WAIT states
           $processOnPort = netstat -ano | Select-String ":$port" | Where-Object { $_ -match "LISTENING|TIME_WAIT|ESTABLISHED" }
@@ -376,7 +376,7 @@ jobs:
         cd backend
         mvn clean package -DskipTests
         Start-Process powershell -ArgumentList "-Command", "java -jar target/*.jar --spring.datasource.url=jdbc:mysql://localhost:${mysqlPort}/smartsplit-db --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$env:APP_JWT_SECRET --server.port=16048" -WindowStyle Hidden
-        Start-Sleep -Seconds 20
+        Start-Sleep -Seconds 40
 
     - name: Install Frontend Dependencies
       working-directory: ./frontend
@@ -388,10 +388,70 @@ jobs:
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       env:
-        PORT: 3000
+        PORT: 3003
       run: |
-        Start-Process powershell -ArgumentList "-Command", "npm start" -WindowStyle Hidden
-        Start-Sleep -Seconds 30
+        $frontendPath = Get-Location
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; `$env:PORT='3003'; npm start" -WindowStyle Hidden
+        Start-Sleep -Seconds 60
+
+    - name: Verify Services Started
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      run: |
+        Write-Host "=== Verifying Services ==="
+
+        # Check for node processes
+        Write-Host "`nNode processes:"
+        $nodeProcesses = Get-Process node -ErrorAction SilentlyContinue
+        if ($nodeProcesses) {
+          $nodeProcesses | Format-Table Id, ProcessName, StartTime -AutoSize
+        } else {
+          Write-Warning "No node processes found!"
+        }
+
+        # Check for java processes
+        Write-Host "`nJava processes:"
+        $javaProcesses = Get-Process java -ErrorAction SilentlyContinue
+        if ($javaProcesses) {
+          $javaProcesses | Format-Table Id, ProcessName, StartTime -AutoSize
+        } else {
+          Write-Warning "No java processes found!"
+        }
+
+        # Check what's listening on critical ports
+        Write-Host "`nPort 3003 (Frontend):"
+        $port3003 = netstat -ano | Select-String ":3003.*LISTENING"
+        if ($port3003) {
+          $port3003 | ForEach-Object { Write-Host "  $_" }
+        } else {
+          Write-Warning "Nothing listening on port 3003!"
+        }
+
+        Write-Host "`nPort 16048 (Backend):"
+        $port16048 = netstat -ano | Select-String ":16048.*LISTENING"
+        if ($port16048) {
+          $port16048 | ForEach-Object { Write-Host "  $_" }
+        } else {
+          Write-Warning "Nothing listening on port 16048!"
+        }
+
+        # Try accessing the services
+        Write-Host "`nTesting frontend accessibility..."
+        try {
+          $frontendResponse = Invoke-WebRequest -Uri http://localhost:3003 -UseBasicParsing -TimeoutSec 3
+          Write-Host "✓ Frontend is accessible on port 3003 (Status: $($frontendResponse.StatusCode))"
+        } catch {
+          Write-Warning "✗ Frontend not yet accessible on port 3003: $_"
+        }
+
+        Write-Host "`nTesting backend accessibility..."
+        try {
+          $backendResponse = Invoke-WebRequest -Uri http://localhost:16048/api/actuator/health -UseBasicParsing -TimeoutSec 3
+          Write-Host "✓ Backend is accessible on port 16048 (Status: $($backendResponse.StatusCode))"
+        } catch {
+          Write-Warning "✗ Backend not yet accessible on port 16048: $_"
+        }
+
+        Write-Host "`n=== Verification Complete ==="
 
     - name: Wait for Services
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -400,19 +460,19 @@ jobs:
         $attempt = 0
         while ($attempt -lt $maxAttempts) {
           try {
-            $response = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 5
+            $response = Invoke-WebRequest -Uri http://localhost:3003 -UseBasicParsing -TimeoutSec 5
             if ($response.StatusCode -eq 200) {
-              Write-Host "Frontend is ready"
+              Write-Host "Frontend is ready on port 3003"
               break
             }
           } catch {
             $attempt++
-            Write-Host "Waiting for frontend... (Attempt $attempt/$maxAttempts)"
+            Write-Host "Waiting for frontend on port 3003... (Attempt $attempt/$maxAttempts)"
             Start-Sleep -Seconds 5
           }
         }
         if ($attempt -eq $maxAttempts) {
-          Write-Error "Frontend failed to start on port 3000 after $maxAttempts attempts"
+          Write-Error "Frontend failed to start on port 3003 after $maxAttempts attempts"
           exit 1
         }
         $attempt = 0
@@ -437,7 +497,7 @@ jobs:
     - name: Run Cypress E2E Tests
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       env:
-        CYPRESS_BASE_URL: http://localhost:3000
+        CYPRESS_BASE_URL: http://localhost:3003
       run: |
         npx cypress run --headless --browser chrome
 
@@ -483,7 +543,7 @@ jobs:
         }
 
         # Kill any remaining processes on critical ports
-        $ports = @(3307, 16048, 3000)
+        $ports = @(3307, 16048, 3003)
         foreach ($port in $ports) {
           $processOnPort = netstat -ano | Select-String ":$port" | Select-String "LISTENING"
           if ($processOnPort) {
