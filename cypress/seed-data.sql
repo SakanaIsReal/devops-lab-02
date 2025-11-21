@@ -1,6 +1,20 @@
 -- E2E Test Seed Data
 -- This data is inserted before Cypress tests run
 
+-- Clean up existing data (disable FK checks to truncate in any order)
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE payment_receipts;
+TRUNCATE TABLE expense_payments;
+TRUNCATE TABLE expense_item_shares;
+TRUNCATE TABLE expense_items;
+TRUNCATE TABLE expenses;
+TRUNCATE TABLE group_members;
+TRUNCATE TABLE groups_tbl;
+TRUNCATE TABLE stored_files;
+TRUNCATE TABLE users;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- Insert test users
 INSERT INTO users (avatar_url, email, first_name, last_name, password_hash, phone, qr_code_url, `role`, user_name) VALUES
     ('https://via.placeholder.com/150', 'user@example.com', NULL, NULL, '$2a$12$R4F1hAJD2DH0raTAUdil3./4RM1t1Cus3R3x2WpM..G.sEmB2bDjq', '0958487321', '', 1, 'ggg'),
     (NULL, 'use@example.com', NULL, NULL, '$2a$12$BwM1aIRBlEZPmuJtHb9xIu2trxdq2kXrFYIWE4R6gbMciwDIkxGgS', '', NULL, 1, 'ni'),
