@@ -78,6 +78,8 @@ jobs:
       - name: Start Docker Environment
         env:
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+          MYSQL_ROOT_PASSWORD: smartsplit_test_password
+          MYSQL_DATABASE: smartsplit-db
         run: |
           Write-Host "Building and Starting Services..."
           docker compose up -d --build
@@ -87,9 +89,9 @@ jobs:
         timeout-minutes: 5
         run: |
           npm install -g wait-on
-          Write-Host "Waiting for Backend (16048) and Frontend (3000)..."
+          Write-Host "Waiting for Backend (8081) and Frontend (8080)..."
           # We wait for localhost because ports are mapped to the Host
-          npx wait-on tcp:127.0.0.1:16048 tcp:127.0.0.1:3000 --timeout 300000
+          npx wait-on tcp:127.0.0.1:8081 tcp:127.0.0.1:8080 --timeout 300000
 
       # --- RUN TEST ---
       - name: Run Cypress Tests
@@ -98,11 +100,11 @@ jobs:
           working-directory: ./frontend
           install: false # We use the container, but Cypress runs on host
           start: false   # Already running in Docker
-          wait-on: 'http://localhost:3000' # The Docker mapped port
+          wait-on: 'http://localhost:8080' # The Docker mapped port
           browser: chrome
         env:
-          # Cypress (on Host) talks to Frontend (on Host Port 3000)
-          CYPRESS_BASE_URL: http://localhost:3000
+          # Cypress (on Host) talks to Frontend (on Host Port 8080)
+          CYPRESS_BASE_URL: http://localhost:8080
 
       # --- DEBUG LOGS (If Failure) ---
       - name: Dump Docker Logs
