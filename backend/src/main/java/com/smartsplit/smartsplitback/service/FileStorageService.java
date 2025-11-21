@@ -87,7 +87,7 @@ public class FileStorageService {
     }
 
     private String buildPublicUrl(Long id) {
-        return "/api/files/" + id;
+        return "/files/" + id;
     }
 
     private String getExtension(String name) {

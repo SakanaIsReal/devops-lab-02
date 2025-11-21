@@ -72,7 +72,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "my group", "receipt_1", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -95,7 +95,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "img", "hero", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -112,7 +112,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "misc-folder", "blob", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -130,7 +130,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "docs", "   ", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
 
             ArgumentCaptor<StoredFile> cap = ArgumentCaptor.forClass(StoredFile.class);
             verify(repo).save(cap.capture());
@@ -163,7 +163,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "shots", "sc1", req("https","cdn.example.com",4443,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
         }
 
         @Test
@@ -172,7 +172,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "imgs", "a", req("http","localhost",80,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
         }
 
         @Test
@@ -181,7 +181,7 @@ class FileStorageServiceTest {
 
             String url = service.save(f, "imgs", "a", req("https","example.com",443,"/upload"));
 
-            assertThat(url).isEqualTo("/api/files/123");
+            assertThat(url).isEqualTo("/files/123");
         }
     }
 
