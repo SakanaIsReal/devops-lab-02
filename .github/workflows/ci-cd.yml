@@ -78,7 +78,7 @@ jobs:
         working-directory: ./backend
         env:
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
-        run: mvn verify -DskipTests "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
+        run: mvn verify -DskipSurefireTests "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
   # ------------------------------------------------------------------
   # JOB 3: E2E TESTS (Dockerized)
