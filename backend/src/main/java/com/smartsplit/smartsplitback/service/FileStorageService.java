@@ -3,7 +3,6 @@ package com.smartsplit.smartsplitback.service;
 import com.smartsplit.smartsplitback.model.StoredFile;
 import com.smartsplit.smartsplitback.repository.StoredFileRepository;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -53,7 +52,7 @@ public class FileStorageService {
             sf.setDataUrl(dataUrl);
 
             repo.save(sf);
-            return buildPublicUrl(req, sf.getId());
+            return buildPublicUrl(sf.getId());
         } catch (Exception e) {
             throw new RuntimeException("Cannot store file as base64: " + e.getMessage(), e);
         }
@@ -87,15 +86,8 @@ public class FileStorageService {
         }
     }
 
-    private String buildPublicUrl(HttpServletRequest req, Long id) {
-        var serverReq = new ServletServerHttpRequest(req);
-        var uri = serverReq.getURI();
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        int port = uri.getPort();
-        String portPart = (port == -1 || ("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443))
-                ? "" : ":" + port;
-        return scheme + "://" + host + portPart + "/api/files/" + id;
+    private String buildPublicUrl(Long id) {
+        return "/api/files/" + id;
     }
 
     private String getExtension(String name) {
