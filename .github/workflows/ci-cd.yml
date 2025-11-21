@@ -57,7 +57,30 @@ jobs:
         run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
 # ------------------------------------------------------------------
-  # JOB 2: E2E TESTS (Dockerized)
+  # JOB 2: INTEGRATION TESTS (Backend + MySQL via Testcontainers)
+  # ------------------------------------------------------------------
+  integration-test:
+    name: Integration Tests
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Run Integration Tests
+        working-directory: ./backend
+        env:
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+        run: mvn verify -DskipTests "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
+
+  # ------------------------------------------------------------------
+  # JOB 3: E2E TESTS (Dockerized)
   # ------------------------------------------------------------------
   e2e-test:
     name: E2E Tests
@@ -137,11 +160,11 @@ jobs:
         run: docker compose down -v
 
   # ------------------------------------------------------------------
-  # JOB 3: BUILD & DEPLOY
+  # JOB 4: BUILD & DEPLOY
   # ------------------------------------------------------------------
   build-and-deploy:
     name: Build & Deploy
-    needs: [unit-test, e2e-test]
+    needs: [unit-test, integration-test, e2e-test]
     if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
     
