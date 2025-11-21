@@ -1,6 +1,19 @@
 -- E2E Test Seed Data
 -- This data is inserted before Cypress tests run
 
+-- Clean up existing data (disable FK checks to truncate in any order)
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE payment_receipts;
+TRUNCATE TABLE expense_payments;
+TRUNCATE TABLE expense_item_shares;
+TRUNCATE TABLE expense_items;
+TRUNCATE TABLE expenses;
+TRUNCATE TABLE group_members;
+TRUNCATE TABLE groups_tbl;
+TRUNCATE TABLE stored_files;
+TRUNCATE TABLE users;
+SET FOREIGN_KEY_CHECKS = 1;
+
 INSERT INTO users (avatar_url, email, first_name, last_name, password_hash, phone, qr_code_url, `role`, user_name) VALUES
     ('https://via.placeholder.com/150', 'user@example.com', NULL, NULL, '$2a$12$R4F1hAJD2DH0raTAUdil3./4RM1t1Cus3R3x2WpM..G.sEmB2bDjq', '0958487321', '', 1, 'ggg'),
     (NULL, 'use@example.com', NULL, NULL, '$2a$12$BwM1aIRBlEZPmuJtHb9xIu2trxdq2kXrFYIWE4R6gbMciwDIkxGgS', '', NULL, 1, 'ni'),
@@ -13,5 +26,4 @@ INSERT INTO users (avatar_url, email, first_name, last_name, password_hash, phon
     (NULL, 'jj@gmail.com', NULL, NULL, '$2a$12$DX64dP64MCs/A5XckYTB1e4kvFHwAXAI653ISpqsNVeA1Nzc59QXK', '', NULL, 1, 'yupp'),
     ('http://localhost:3000/files/8', 'nicetest@gmail.com', 'navadol', 'somboonkul', '$2a$12$hBPbu7bBx/4TLGMGTdyGz.RKEzo6PompZNV2Ovkf5vSifUqCqSEQG', '9876543210', 'string', 1, 'Man-DevOps'),
     (NULL, 'testcy@gmail.com', 'navadol', 'somboonkul', '$2a$12$yMtjjFyHArlI0BZNS13nyuQFvfFykfdkyyUbs8l3BqaLZNMtNFOC2', '0987654321', NULL, 1, 'Testnice'),
-    (NULL, 'suki@gmail.com', NULL, NULL, '$2a$12$/HrLOAeXtijR4OTWSub9HeTD1EKyiIhzDgGmwALPAyf7WzrFVrhda', '0987654321', NULL, 1, 'sukikana'),
-    (NULL, 'TestCypress@example.com', NULL, NULL, '$2a$12$V1meuSFMzEd6jY98XXpMEOqndH7KMlfjbFC462/gsLGBxNOkZH.Zy', '1234567890', NULL, 1, 'MxnlodySoTest');
+    (NULL, 'suki@gmail.com', NULL, NULL, '$2a$12$/HrLOAeXtijR4OTWSub9HeTD1EKyiIhzDgGmwALPAyf7WzrFVrhda', '0987654321', NULL, 1, 'sukikana');
