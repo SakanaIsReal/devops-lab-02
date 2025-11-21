@@ -420,6 +420,8 @@ jobs:
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
+        Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+        Remove-Item package-lock.json -ErrorAction SilentlyContinue
         npm install --legacy-peer-deps
 
     - name: Start Frontend
