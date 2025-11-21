@@ -57,12 +57,35 @@ jobs:
         run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
 # ------------------------------------------------------------------
-  # JOB 2: E2E TESTS (Dockerized)
+  # JOB 2: INTEGRATION TESTS (Backend + MySQL via Testcontainers)
+  # ------------------------------------------------------------------
+  integration-test:
+    name: Integration Tests
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Run Integration Tests
+        working-directory: ./backend
+        env:
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+        run: mvn verify -DskipSurefireTests "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
+
+  # ------------------------------------------------------------------
+  # JOB 3: E2E TESTS (Dockerized)
   # ------------------------------------------------------------------
   e2e-test:
     name: E2E Tests
     runs-on: self-hosted
-    # needs: unit-test
+    needs: unit-test
     
     steps:
       - name: Checkout code
@@ -137,12 +160,13 @@ jobs:
         run: docker compose down -v
 
   # ------------------------------------------------------------------
-  # JOB 3: BUILD & DEPLOY
+  # JOB 4: BUILD & DEPLOY
   # ------------------------------------------------------------------
   build-and-deploy:
     name: Build & Deploy
-    needs: [unit-test, e2e-test]
+    needs: [unit-test, integration-test, e2e-test]
     if: github.ref == 'refs/heads/main'
+    # github.ref == 'refs/heads/main'
     runs-on: self-hosted
     
     steps:
@@ -171,17 +195,24 @@ jobs:
 
       - name: Deploy to Kubernetes
         run: |
-          $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
           $sha = "${{ github.sha }}"
-          
-          # Update Images
+
+          # Pre-pull images into Minikube (avoids timeout during rollout)
+          Write-Host "Pre-pulling images into Minikube..."
+          minikube ssh "docker pull ${{ env.BACKEND_IMAGE }}:$sha"
+          minikube ssh "docker pull ${{ env.FRONTEND_IMAGE }}:$sha"
+
+          # Update deployment images
+          Write-Host "Updating deployment images..."
           kubectl set image deployment/backend backend="${{ env.BACKEND_IMAGE }}:$sha" -n smartsplit
           kubectl set image deployment/frontend frontend="${{ env.FRONTEND_IMAGE }}:$sha" -n smartsplit
-          
-          # Force rollout via annotation
-          kubectl patch deployment backend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
-          kubectl patch deployment frontend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
-          
-          # Wait for status
+
+          # Force rollout restart (cleaner than JSON patch)
+          Write-Host "Restarting deployments..."
+          kubectl rollout restart deployment/backend -n smartsplit
+          kubectl rollout restart deployment/frontend -n smartsplit
+
+          # Wait for rollout completion
+          Write-Host "Waiting for rollout to complete..."
           kubectl rollout status deployment/backend -n smartsplit --timeout=300s
           kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
