@@ -432,17 +432,16 @@ jobs:
         $frontendLogPath = Join-Path $frontendPath "frontend-output.log"
         Write-Host "Starting frontend on port 3003... (logs: $frontendLogPath)"
 
-        # Start frontend using Start-Job with explicit PORT setting
+        # Start frontend using cmd /c to properly set environment variables in the same shell context
+        # PowerShell's $env:PORT inside Start-Job doesn't reliably pass to child processes on Windows
         Start-Job -ScriptBlock {
           param($workDir, $logPath)
           Set-Location $workDir
-          $env:PORT = "3003"
-          $env:BROWSER = "none"
-          npm start 2>&1 | Tee-Object -FilePath $logPath
+          cmd /c "set PORT=3003 && set BROWSER=none && npm start" 2>&1 | Tee-Object -FilePath $logPath
         } -ArgumentList $frontendPath, $frontendLogPath | Out-Null
 
-        Write-Host "Frontend started, waiting 60 seconds for initialization..."
-        Start-Sleep -Seconds 60
+        Write-Host "Frontend started, waiting 90 seconds for initialization..."
+        Start-Sleep -Seconds 90
 
         # Check if frontend is listening on port 3003
         $frontendPort = netstat -ano | Select-String ":3003.*LISTENING"
