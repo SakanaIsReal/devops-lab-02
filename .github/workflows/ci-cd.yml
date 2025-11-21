@@ -57,148 +57,57 @@ jobs:
         working-directory: ./backend
         run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
-  # ------------------------------------------------------------------
-  # JOB 2: E2E TESTS (Complex Integration)
+# ------------------------------------------------------------------
+  # JOB 2: E2E TESTS (Dockerized)
   # ------------------------------------------------------------------
   e2e-test:
     name: E2E Tests
     runs-on: self-hosted
-    # needs: unit-test
+    needs: unit-test
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- SETUP ---
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: 'maven'
+      # --- CLEANUP OLD RUNS ---
+      - name: Cleanup Previous Containers
+        run: docker compose down -v --remove-orphans
+        continue-on-error: true
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: './frontend/package-lock.json'
-
-      # --- AGGRESSIVE CLEANUP (FIXED) ---
-      - name: Pre-flight Cleanup
-        run: |
-          Write-Host "Cleaning up ports 3307, 16048, 3003..."
-          $ports = @(3307, 16048, 3003)
-          foreach ($port in $ports) {
-             $pids = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
-             foreach ($p in $pids) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
-          }
-          
-          # FIXED: Check if container exists before removing to avoid PowerShell error
-          if (docker ps -a -q -f name=mysql-ci) { 
-              Write-Host "Removing existing mysql-ci container..."
-              docker rm -f mysql-ci 
-          }
-          
-          # FIXED: Check if network exists before removing
-          if (docker network ls -q -f name=smartsplit-ci-network) { 
-              Write-Host "Removing existing network..."
-              docker network rm smartsplit-ci-network 
-          }
-
-      # --- INFRASTRUCTURE ---
-      - name: Start Database (Docker)
-        run: |
-          docker network create smartsplit-ci-network
-          # We map to 3307 to avoid conflict with standard MySQL
-          docker run -d --name mysql-ci --network smartsplit-ci-network `
-            -e MYSQL_ROOT_PASSWORD=rootpassword `
-            -e MYSQL_DATABASE=smartsplit-db `
-            -p "3307:3306" `
-            --health-cmd='mysqladmin ping -h localhost -u root -prootpassword --silent' `
-            --health-interval=10s --health-retries=5 `
-            mysql:8.0
-
-      - name: Build Backend (Skip Tests)
-        working-directory: ./backend
-        # We skip tests here because we ran them in job 1, saves time & config issues
-        run: mvn clean package -DskipTests
-
-      - name: Install Frontend Dependencies
-        working-directory: ./frontend
-        run: npm ci --legacy-peer-deps
-
-
-# --- START SERVICES (DEBUG MODE) ---
-      - name: Start Application Stack
+      # --- START ENVIRONMENT ---
+      - name: Start Docker Environment
         env:
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
         run: |
-          npm install -g wait-on
-          
-          # 1. Check if Database is actually reachable first
-          Write-Host "--- CHECKING DATABASE CONNECTIVITY ---"
-          try {
-             $tcp = Test-NetConnection -ComputerName 127.0.0.1 -Port 3307
-             if ($tcp.TcpTestSucceeded) {
-                 Write-Host "SUCCESS: Database is listening on 127.0.0.1:3307"
-             } else {
-                 Write-Host "ERROR: Database port 3307 is NOT OPEN. Docker container might have failed."
-                 docker logs mysql-ci
-                 exit 1
-             }
-          } catch {
-             Write-Host "Network test failed."
-          }
+          Write-Host "Building and Starting Services..."
+          docker compose up -d --build
 
-          # 2. Start Backend (Redirect output to files to capture the crash)
-          $jar = Get-ChildItem ./backend/target/*.jar | Where-Object { $_.Name -notlike "*original*" } | Select-Object -First 1
-          Write-Host "Starting Backend JAR: $jar"
-          
-          # We use 127.0.0.1 to ensure IPv4 connection
-          $backendProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "$jar", "--spring.datasource.url=jdbc:mysql://127.0.0.1:3307/smartsplit-db", "--spring.datasource.username=root", "--spring.datasource.password=rootpassword", "--server.port=16048", "--app.jwt.secret=$env:APP_JWT_SECRET" -RedirectStandardOutput "backend.log" -RedirectStandardError "backend.err" -PassThru -NoNewWindow
-          "BACKEND_PID=$($backendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-          # 3. Start Frontend (Redirect output to files)
-          Write-Host "Starting Frontend..."
-          Set-Location ./frontend
-          $env:PORT=3003
-          $env:BROWSER="none"
-          $frontendProcess = Start-Process -FilePath "npm" -ArgumentList "start" -RedirectStandardOutput "frontend.log" -RedirectStandardError "frontend.err" -PassThru -NoNewWindow
-          "FRONTEND_PID=$($frontendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Check Startup Logs
-        run: |
-          Write-Host "Sleeping 15 seconds to let services fail or start..."
-          Start-Sleep -Seconds 15
-          
-          # PRINT BACKEND LOGS
-          Write-Host "================ BACKEND LOGS ================"
-          if (Test-Path ..\backend.log) { Get-Content ..\backend.log }
-          if (Test-Path ..\backend.err) { Get-Content ..\backend.err }
-          
-          # PRINT FRONTEND LOGS
-          Write-Host "================ FRONTEND LOGS ================"
-          if (Test-Path frontend.log) { Get-Content frontend.log }
-          if (Test-Path frontend.err) { Get-Content frontend.err }
-
+      # --- WAIT FOR HEALTH ---
       - name: Wait for Services
-        timeout-minutes: 2
+        timeout-minutes: 5
         run: |
-          Write-Host "Waiting for Backend (16048) and Frontend (3003)..."
-          npx wait-on tcp:127.0.0.1:16048 tcp:127.0.0.1:3003 --timeout 60000
+          npm install -g wait-on
+          Write-Host "Waiting for Backend (16048) and Frontend (3000)..."
+          # We wait for localhost because ports are mapped to the Host
+          npx wait-on tcp:127.0.0.1:16048 tcp:127.0.0.1:3000 --timeout 300000
 
-      # --- TEST EXECUTION ---
+      # --- RUN TEST ---
       - name: Run Cypress Tests
         uses: cypress-io/github-action@v6
         with:
           working-directory: ./frontend
-          install: false # Already installed
-          start: false   # Already started manually
-          wait-on: 'http://localhost:3003'
+          install: false # We use the container, but Cypress runs on host
+          start: false   # Already running in Docker
+          wait-on: 'http://localhost:3000' # The Docker mapped port
           browser: chrome
         env:
-          CYPRESS_BASE_URL: http://localhost:3003
+          # Cypress (on Host) talks to Frontend (on Host Port 3000)
+          CYPRESS_BASE_URL: http://localhost:3000
+
+      # --- DEBUG LOGS (If Failure) ---
+      - name: Dump Docker Logs
+        if: failure()
+        run: docker compose logs
 
       # --- ARTIFACTS ---
       - name: Upload Artifacts
@@ -211,20 +120,11 @@ jobs:
             frontend/cypress/videos
           if-no-files-found: ignore
 
-      # --- TEARDOWN (FIXED) ---
+      # --- TEARDOWN ---
       - name: Teardown
         if: always()
-        run: |
-          if ($env:BACKEND_PID) { Stop-Process -Id $env:BACKEND_PID -Force -ErrorAction SilentlyContinue }
-          if ($env:FRONTEND_PID) { Stop-Process -Id $env:FRONTEND_PID -Force -ErrorAction SilentlyContinue }
-          
-          # FIXED: Conditional Docker cleanup to prevent exit code 1
-          if (docker ps -a -q -f name=mysql-ci) { docker rm -f mysql-ci }
-          if (docker network ls -q -f name=smartsplit-ci-network) { docker network rm smartsplit-ci-network }
-          
-          # Final aggressive cleanup
-          Get-NetTCPConnection -LocalPort 3307,16048,3003 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-
+        run: docker compose down -v
+        
   # ------------------------------------------------------------------
   # JOB 3: BUILD & DEPLOY
   # ------------------------------------------------------------------
