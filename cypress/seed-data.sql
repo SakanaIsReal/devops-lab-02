@@ -13,5 +13,4 @@ INSERT INTO users (avatar_url, email, first_name, last_name, password_hash, phon
     (NULL, 'jj@gmail.com', NULL, NULL, '$2a$12$DX64dP64MCs/A5XckYTB1e4kvFHwAXAI653ISpqsNVeA1Nzc59QXK', '', NULL, 1, 'yupp'),
     ('http://localhost:3000/files/8', 'nicetest@gmail.com', 'navadol', 'somboonkul', '$2a$12$hBPbu7bBx/4TLGMGTdyGz.RKEzo6PompZNV2Ovkf5vSifUqCqSEQG', '9876543210', 'string', 1, 'Man-DevOps'),
     (NULL, 'testcy@gmail.com', 'navadol', 'somboonkul', '$2a$12$yMtjjFyHArlI0BZNS13nyuQFvfFykfdkyyUbs8l3BqaLZNMtNFOC2', '0987654321', NULL, 1, 'Testnice'),
-    (NULL, 'suki@gmail.com', NULL, NULL, '$2a$12$/HrLOAeXtijR4OTWSub9HeTD1EKyiIhzDgGmwALPAyf7WzrFVrhda', '0987654321', NULL, 1, 'sukikana'),
-    (NULL, 'TestCypress@example.com', NULL, NULL, '$2a$12$V1meuSFMzEd6jY98XXpMEOqndH7KMlfjbFC462/gsLGBxNOkZH.Zy', '1234567890', NULL, 1, 'MxnlodySoTest');
+    (NULL, 'suki@gmail.com', NULL, NULL, '$2a$12$/HrLOAeXtijR4OTWSub9HeTD1EKyiIhzDgGmwALPAyf7WzrFVrhda', '0987654321', NULL, 1, 'sukikana');
