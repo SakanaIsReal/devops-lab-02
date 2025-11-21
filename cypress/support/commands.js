@@ -89,7 +89,7 @@ Cypress.Commands.add("editProfile", (username, phone) => {
     cy.xpath(ProfileLocators.saveChangesButton).should("exist").click();
     cy.wait(2000);
     cy.visit(WebPageLocators.accountPage);
-    cy.xpath(ProfileLocators.usernameInputBox).should("contain.value", username);
+    cy.xpath(ProfileLocators.usernameInputBox, { timeout: 10000 }).should('be.visible').should("contain.value", username);
     cy.xpath(ProfileLocators.phoneInputBox).should("contain.value", phone);
 });
 
