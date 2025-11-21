@@ -85,7 +85,6 @@ jobs:
   e2e-test:
     name: E2E Tests
     runs-on: self-hosted
-    if: false
     needs: unit-test
     
     steps:
