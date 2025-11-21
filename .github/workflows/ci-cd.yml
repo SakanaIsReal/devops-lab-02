@@ -364,7 +364,7 @@ jobs:
         Write-Host "`n=== MySQL Database started successfully on port ${mysqlPort} ==="
 
     - name: Build and Start Backend
-      shell: powershell
+      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       env:
         APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       run: |
