@@ -93,6 +93,14 @@ jobs:
           # We wait for localhost because ports are mapped to the Host
           npx wait-on tcp:127.0.0.1:8081 tcp:127.0.0.1:8080 --timeout 300000
 
+      # --- ENSURE NGINX DNS RESOLUTION ---
+      - name: Restart Frontend for DNS Resolution
+        run: |
+          Write-Host "Restarting frontend to ensure nginx resolves backend DNS..."
+          docker compose restart frontend
+          Start-Sleep -Seconds 5
+          npx wait-on http://127.0.0.1:8080 --timeout 60000
+
       # --- RUN TEST ---
       - name: Run Cypress Tests
         uses: cypress-io/github-action@v6
