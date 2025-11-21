@@ -263,6 +263,7 @@ Cypress.Commands.add("payExpenseFromGroup", (groupName, expenseName) => {
     cy.wait(10000);
     cy.get('input[type="file"]').attachFile("Mockreciept.png");
     cy.xpath('//*[@id="root"]/div/div/div[2]/button').click();
+    cy.wait(2000);  // Wait for payment API to complete
 
     cy.visit(WebPageLocators.groupsPage);
     cy.xpath(
