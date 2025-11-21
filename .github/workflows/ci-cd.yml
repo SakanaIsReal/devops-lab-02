@@ -380,16 +380,24 @@ jobs:
         $backendLogPath = Join-Path $PWD "backend-output.log"
         Write-Host "Starting backend... (logs: $backendLogPath)"
 
+        # Resolve the JAR path before passing to Start-Job (PowerShell doesn't expand wildcards)
+        $jarFile = Get-ChildItem -Path "target" -Filter "*.jar" | Where-Object { $_.Name -notlike "*-original.jar" } | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $jarFile) {
+          Write-Error "No JAR file found in target directory!"
+          exit 1
+        }
+        Write-Host "Found JAR file: $jarFile"
+
         Start-Job -ScriptBlock {
-          param($port, $secret, $logPath, $workDir)
+          param($port, $secret, $logPath, $workDir, $jar)
           Set-Location $workDir
-          java -jar target/*.jar `
+          java -jar $jar `
             --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
             --spring.datasource.username=root `
             --spring.datasource.password=rootpassword `
             --app.jwt.secret=$secret `
             --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD | Out-Null
+        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD, $jarFile | Out-Null
 
         Write-Host "Backend started, waiting 40 seconds for initialization..."
         Start-Sleep -Seconds 40
