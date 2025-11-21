@@ -167,7 +167,8 @@ jobs:
   build-and-deploy:
     name: Build & Deploy
     # needs: [unit-test, integration-test, e2e-test]
-    # if: github.ref == 'refs/heads/main'
+    if: false
+    # github.ref == 'refs/heads/main'
     runs-on: self-hosted
     
     steps:
