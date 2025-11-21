@@ -30,7 +30,6 @@ jobs:
   unit-test:
     name: Unit Tests
     runs-on: self-hosted
-    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
