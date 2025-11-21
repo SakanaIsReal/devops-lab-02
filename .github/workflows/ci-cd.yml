@@ -364,7 +364,7 @@ jobs:
         Write-Host "`n=== MySQL Database started successfully on port ${mysqlPort} ==="
 
     - name: Build and Start Backend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+      shell: powershell
       env:
         APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
       run: |
@@ -381,16 +381,13 @@ jobs:
         Write-Host "Starting backend... (logs: $backendLogPath)"
 
         # Start backend using Start-Job
-        Start-Job -ScriptBlock {
+        $jobScript = {
           param($port, $secret, $logPath, $workDir)
           Set-Location $workDir
-          java -jar target/*.jar `
-            --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
-            --spring.datasource.username=root `
-            --spring.datasource.password=rootpassword `
-            --app.jwt.secret=$secret `
-            --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD | Out-Null
+          java -jar target/*.jar --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" --spring.datasource.username=root --spring.datasource.password=rootpassword --app.jwt.secret=$secret --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
+        }
+
+        Start-Job -ScriptBlock $jobScript -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD | Out-Null
 
         Write-Host "Backend process started"
         Write-Host "Waiting for backend initialization..."
