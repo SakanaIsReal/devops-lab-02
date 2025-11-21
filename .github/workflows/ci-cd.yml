@@ -97,8 +97,6 @@ jobs:
       - name: Run Cypress Tests
         uses: cypress-io/github-action@v6
         with:
-          working-directory: ./frontend
-          install-command: npm install cypress --legacy-peer-deps
           browser: chrome
         env:
           # Cypress (on Host) talks to Frontend (on Host Port 8080)
