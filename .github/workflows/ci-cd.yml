@@ -63,7 +63,7 @@ jobs:
   e2e-test:
     name: E2E Tests
     runs-on: self-hosted
-    needs: unit-test
+    # needs: unit-test
     
     steps:
       - name: Checkout code
@@ -124,7 +124,7 @@ jobs:
       - name: Teardown
         if: always()
         run: docker compose down -v
-        
+
   # ------------------------------------------------------------------
   # JOB 3: BUILD & DEPLOY
   # ------------------------------------------------------------------
