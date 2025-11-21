@@ -6,773 +6,229 @@ on:
   pull_request:
     branches: [ main ]
 
+# prevents multiple runs on the same branch from colliding on ports
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: docker.io
   BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-frontend
+  # Common versions
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17' # Assuming 17 based on Spring Boot, adjust if needed
+
+defaults:
+  run:
+    shell: powershell
 
 jobs:
-  test:
-    if: false
+  # ------------------------------------------------------------------
+  # JOB 1: UNIT TESTS (Fast feedback)
+  # ------------------------------------------------------------------
+  unit-test:
+    name: Unit Tests
     runs-on: self-hosted
-    name: Run Tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Install & Lint Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci --legacy-peer-deps
+          # Add lint command here if you have one, e.g., npm run lint
+
+      - name: Test Backend
+        working-directory: ./backend
+        run: mvn test -Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}
+
+  # ------------------------------------------------------------------
+  # JOB 2: E2E TESTS (Complex Integration)
+  # ------------------------------------------------------------------
+  e2e-test:
+    name: E2E Tests
+    runs-on: self-hosted
+    needs: unit-test # Only run expensive E2E if unit tests pass
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'  # Updated from 18 to 20
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Frontend Dependencies
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        # Remove only node_modules, keep package-lock.json for consistent dependency resolution
-        Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
-        # Use npm ci for faster, deterministic installs from lockfile
-        npm ci --legacy-peer-deps
+      # --- SETUP ---
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
 
-    - name: Install Cypress
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        npm install cypress --save-dev
-        
-    - name: Run Backend Unit Tests
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
-        SPRING_PROFILES_ACTIVE: test
-      run: |
-        cd backend
-        $jwtSecret = $env:APP_JWT_SECRET
-        mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
 
-  e2e-test:
-    runs-on: self-hosted
-    name: Run E2E Tests
-    # needs: test
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
-
-    - name: Install Root Dependencies (Cypress)
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        npm install
-
-    - name: Cleanup Previous Containers
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Write-Host "=== Cleaning up previous test environment ==="
-
-        # Show current docker containers
-        Write-Host "`nCurrent Docker containers:"
-        docker ps -a --filter name=mysql-ci --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-        # Stop all Java and Node processes from previous runs
-        Write-Host "`nStopping Java and Node processes..."
-        Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-
-        # Force remove MySQL container if it exists (skip stop to save time)
-        $mysqlContainer = docker ps -aq -f name=mysql-ci
-        if ($mysqlContainer) {
-          Write-Host "Force removing mysql-ci container..."
-          docker rm -f mysql-ci 2>$null
-          Start-Sleep -Seconds 3
-
-          # Verify container is removed
-          $stillExists = docker ps -aq -f name=mysql-ci
-          if ($stillExists) {
-            Write-Warning "Container mysql-ci still exists, attempting harder removal..."
-            docker rm -f mysql-ci 2>$null
-            Start-Sleep -Seconds 2
-          } else {
-            Write-Host "Container mysql-ci removed successfully"
+      # --- AGGRESSIVE CLEANUP ---
+      - name: Pre-flight Cleanup
+        run: |
+          Write-Host "Cleaning up ports 3307, 16048, 3003..."
+          $ports = @(3307, 16048, 3003)
+          foreach ($port in $ports) {
+             $pids = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
+             foreach ($p in $pids) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
           }
-        }
-
-        # Remove network if it exists
-        $network = docker network ls -q -f name=smartsplit-ci-network
-        if ($network) {
-          Write-Host "Removing smartsplit-ci-network..."
+          docker rm -f mysql-ci 2>$null
           docker network rm smartsplit-ci-network 2>$null
-        }
+          # Restart WinNat only if absolutely necessary, it can be disruptive
+          # Restart-Service -Name WinNat -Force -ErrorAction SilentlyContinue
 
-        # Check for Windows port exclusions that might block port 3307
-        Write-Host "`nChecking Windows port exclusions..."
-        try {
-          $exclusions = netsh interface ipv4 show excludedportrange protocol=tcp | Select-String "3307"
-          if ($exclusions) {
-            Write-Warning "Port 3307 is in Windows excluded port range!"
-            Write-Host "Excluded ranges containing 3307:"
-            netsh interface ipv4 show excludedportrange protocol=tcp | Select-String -Context 0,2 "3307"
-          } else {
-            Write-Host "Port 3307 is not in excluded port ranges (good)"
-          }
-        } catch {
-          Write-Host "Could not check port exclusions (non-critical)"
-        }
-
-        # Kill any processes using critical ports (MySQL: 3307, Backend: 16048, Frontend: 3003)
-        Write-Host "`nChecking and killing processes on critical ports..."
-        $ports = @(3307, 16048, 3003)
-        foreach ($port in $ports) {
-          # Check for both LISTENING and TIME_WAIT states
-          $processOnPort = netstat -ano | Select-String ":$port" | Where-Object { $_ -match "LISTENING|TIME_WAIT|ESTABLISHED" }
-          if ($processOnPort) {
-            Write-Host "Found connections on port ${port}:"
-            $processOnPort | ForEach-Object {
-              Write-Host "  $_"
-              $line = $_.Line -split '\s+'
-              $pid = $line[-1]
-              if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
-                Write-Host "  -> Killing process $pid using port ${port}..."
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-              }
-            }
-          } else {
-            Write-Host "Port ${port} is free"
-          }
-        }
-
-        # Wait longer for TCP connections to fully close (especially important on Windows)
-        Write-Host "`nWaiting for TCP connections to close..."
-        Start-Sleep -Seconds 5
-
-        # Final port status check
-        Write-Host "`nFinal port status for 3307:"
-        $finalCheck = netstat -ano | Select-String ":3307"
-        if ($finalCheck) {
-          Write-Warning "Port 3307 still has connections:"
-          $finalCheck | ForEach-Object { Write-Host "  $_" }
-        } else {
-          Write-Host "Port 3307 is completely free (ready for use)"
-        }
-
-        Write-Host "`n=== Cleanup completed ==="
-
-    - name: Fix Windows Hyper-V Port Reservations
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Write-Host "=== Checking Windows Hyper-V Port Reservations ==="
-
-        # Show current dynamic port range
-        Write-Host "`nWindows dynamic port range:"
-        netsh int ipv4 show dynamicport tcp
-
-        # Show all excluded port ranges
-        Write-Host "`nWindows excluded port ranges:"
-        netsh int ipv4 show excludedportrange protocol=tcp
-
-        # Check if port 3307 is in an excluded range
-        Write-Host "`nChecking if port 3307 is in excluded ranges..."
-        $excludedRanges = netsh int ipv4 show excludedportrange protocol=tcp
-        $inExcludedRange = $false
-
-        $excludedRanges | Select-String -Pattern "\s+(\d+)\s+(\d+)" -AllMatches | ForEach-Object {
-          $_.Matches | ForEach-Object {
-            $start = [int]$_.Groups[1].Value
-            $end = [int]$_.Groups[2].Value
-            if (3307 -ge $start -and 3307 -le $end) {
-              Write-Warning "Port 3307 is in excluded range: $start - $end"
-              $inExcludedRange = $true
-            }
-          }
-        }
-
-        if (-not $inExcludedRange) {
-          Write-Host "Port 3307 is NOT in any excluded range (but may still be reserved by Hyper-V)"
-        }
-
-        # Attempt to restart WinNAT to clear stale port reservations
-        Write-Host "`nAttempting to restart WinNAT service to clear stale reservations..."
-        try {
-          $winnat = Get-Service -Name WinNat -ErrorAction SilentlyContinue
-          if ($winnat) {
-            if ($winnat.Status -eq "Running") {
-              Write-Host "Restarting WinNAT service..."
-              Restart-Service -Name WinNat -Force -ErrorAction Stop
-              Start-Sleep -Seconds 3
-              Write-Host "WinNAT service restarted successfully"
-            } else {
-              Write-Host "WinNAT service is not running (status: $($winnat.Status))"
-            }
-          } else {
-            Write-Host "WinNAT service not found (may not be using Hyper-V)"
-          }
-        } catch {
-          Write-Warning "Could not restart WinNAT service: $_"
-          Write-Host "This is non-critical, continuing..."
-        }
-
-        # Give the system time to release port reservations
-        Write-Host "`nWaiting for port reservations to clear..."
-        Start-Sleep -Seconds 3
-
-        # Final check
-        Write-Host "`nFinal exclusion check:"
-        netsh int ipv4 show excludedportrange protocol=tcp | Select-String -Pattern "3307" -Context 1,1
-
-        Write-Host "`n=== Hyper-V port check completed ==="
-
-    - name: Start MySQL Database
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Write-Host "=== Starting MySQL Database ==="
-
-        # Try primary port first, fallback to safe port if blocked
-        $primaryPort = 3307
-        $fallbackPort = 50307
-        $mysqlPort = $primaryPort
-
-        # Verify primary port is actually free
-        Write-Host "`nVerifying port $primaryPort is available..."
-        $portCheck = netstat -ano | Select-String ":$primaryPort" | Where-Object { $_ -match "LISTENING" }
-
-        if ($portCheck) {
-          Write-Warning "Port $primaryPort is still in use after cleanup!"
-          Write-Host "Active connections on port ${primaryPort}:"
-          netstat -ano | Select-String ":$primaryPort" | ForEach-Object { Write-Host "  $_" }
-
-          Write-Host "`nAttempting emergency cleanup..."
-          $portCheck | ForEach-Object {
-            $line = $_.Line -split '\s+'
-            $pid = $line[-1]
-            if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
-              Write-Host "Emergency kill of process $pid"
-              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            }
-          }
-          Start-Sleep -Seconds 5
-        } else {
-          Write-Host "Port $primaryPort appears free to netstat"
-        }
-
-        Write-Host "`nCreating Docker network..."
-        docker network create smartsplit-ci-network 2>$null
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "Network created successfully"
-        } else {
-          Write-Host "Network might already exist (ignored)"
-        }
-
-        # Try starting MySQL on primary port with health check configured
-        Write-Host "`nAttempting to start MySQL container on port ${primaryPort}..."
-        $dockerOutput = docker run -d `
-          --name mysql-ci `
-          --network smartsplit-ci-network `
-          -e MYSQL_ROOT_PASSWORD=rootpassword `
-          -e MYSQL_DATABASE=smartsplit-db `
-          -p "${primaryPort}:3306" `
-          --health-cmd='mysqladmin ping -h localhost -u root -prootpassword --silent' `
-          --health-interval=10s `
-          --health-timeout=5s `
-          --health-retries=5 `
-          mysql:8.0 2>&1
-
-        if ($LASTEXITCODE -ne 0) {
-          Write-Warning "Failed to start MySQL on port $primaryPort (likely Hyper-V reservation)"
-          Write-Host "Docker error: $dockerOutput"
-
-          # Clean up failed attempt
-          docker rm -f mysql-ci 2>$null
-          Start-Sleep -Seconds 2
-
-          # Try fallback port (outside typical Hyper-V range)
-          Write-Host "`nTrying fallback port ${fallbackPort} (outside Hyper-V range)..."
-          $mysqlPort = $fallbackPort
-
-          $dockerOutput = docker run -d `
-            --name mysql-ci `
-            --network smartsplit-ci-network `
+      # --- INFRASTRUCTURE ---
+      - name: Start Database (Docker)
+        run: |
+          docker network create smartsplit-ci-network
+          # We map to 3307 to avoid conflict with standard MySQL
+          docker run -d --name mysql-ci --network smartsplit-ci-network `
             -e MYSQL_ROOT_PASSWORD=rootpassword `
             -e MYSQL_DATABASE=smartsplit-db `
-            -p "${fallbackPort}:3306" `
+            -p "3307:3306" `
             --health-cmd='mysqladmin ping -h localhost -u root -prootpassword --silent' `
-            --health-interval=10s `
-            --health-timeout=5s `
-            --health-retries=5 `
-            mysql:8.0 2>&1
+            --health-interval=10s --health-retries=5 `
+            mysql:8.0
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to start MySQL container on both ports!"
-            Write-Host "Docker error output:"
-            Write-Host $dockerOutput
-            Write-Host "`nPort exclusions:"
-            netsh int ipv4 show excludedportrange protocol=tcp
-            Write-Host "`nDocker containers:"
-            docker ps -a
-            exit 1
-          }
+      - name: Build Backend
+        working-directory: ./backend
+        run: mvn clean package -DskipTests
 
-          Write-Host "Successfully started MySQL on fallback port ${fallbackPort}"
-        } else {
-          Write-Host "Successfully started MySQL on primary port ${primaryPort}"
-        }
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci --legacy-peer-deps
 
-        Write-Host "MySQL container started with ID: $dockerOutput"
-        Write-Host "MySQL is accessible on localhost:${mysqlPort}"
+      # --- START SERVICES ---
+      - name: Start Application Stack
+        env:
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+        run: |
+          npm install -g wait-on
+          
+          # 1. Start Backend in Background
+          $jar = Get-ChildItem ./backend/target/*.jar | Where-Object { $_.Name -notlike "*original*" } | Select-Object -First 1
+          Write-Host "Starting Backend JAR: $jar"
+          
+          $backendProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "$jar", "--spring.datasource.url=jdbc:mysql://localhost:3307/smartsplit-db", "--spring.datasource.username=root", "--spring.datasource.password=rootpassword", "--server.port=16048", "--app.jwt.secret=$env:APP_JWT_SECRET" -PassThru -NoNewWindow
+          "BACKEND_PID=$($backendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-        # Export MySQL port for subsequent steps
-        "MYSQL_PORT=${mysqlPort}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # 2. Start Frontend in Background
+          Write-Host "Starting Frontend..."
+          Set-Location ./frontend
+          $env:PORT=3003
+          $env:BROWSER="none"
+          $frontendProcess = Start-Process -FilePath "npm" -ArgumentList "start" -PassThru -NoNewWindow
+          "FRONTEND_PID=$($frontendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-        # Verify container is running
-        Start-Sleep -Seconds 2
-        $containerStatus = docker ps --filter name=mysql-ci --format "{{.Status}}"
-        Write-Host "Container status: $containerStatus"
+      - name: Wait for Services
+        timeout-minutes: 5
+        run: |
+          Write-Host "Waiting for Backend (16048) and Frontend (3003)..."
+          # Wait-on handles the polling logic efficiently
+          npx wait-on tcp:16048 tcp:3003 --timeout 300000
 
-        Write-Host "`nWaiting for MySQL to be healthy (via Docker health check)..."
+      # --- TEST EXECUTION ---
+      - name: Run Cypress Tests
+        uses: cypress-io/github-action@v6
+        with:
+          working-directory: ./frontend
+          install: false # Already installed
+          start: false   # Already started manually
+          wait-on: 'http://localhost:3003'
+          browser: chrome
+        env:
+          CYPRESS_BASE_URL: http://localhost:3003
 
-        # Wait for Docker health check to report healthy status
-        $maxAttempts = 20
-        $attempt = 0
-        while ($attempt -lt $maxAttempts) {
-          $healthStatus = docker inspect --format='{{.State.Health.Status}}' mysql-ci 2>$null
+      # --- ARTIFACTS ---
+      - name: Upload Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-evidence
+          path: |
+            frontend/cypress/screenshots
+            frontend/cypress/videos
+          if-no-files-found: ignore
 
-          if ($healthStatus -eq "healthy") {
-            Write-Host "MySQL is healthy and ready to accept connections"
-            break
-          } elseif ($healthStatus -eq "unhealthy") {
-            Write-Error "MySQL health check failed"
-            Write-Host "Container logs:"
-            docker logs mysql-ci --tail 50
-            exit 1
-          } else {
-            $attempt++
-            Write-Host "MySQL health status: $healthStatus (Attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 3
-          }
-        }
-
-        if ($attempt -eq $maxAttempts) {
-          Write-Error "MySQL failed to become healthy within timeout"
-          Write-Host "Final health status: $healthStatus"
-          Write-Host "Container logs:"
-          docker logs mysql-ci --tail 50
-          exit 1
-        }
-
-        Write-Host "`n=== MySQL Database started successfully on port ${mysqlPort} ==="
-
-    - name: Build and Start Backend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
-      run: |
-        # Use dynamic MySQL port from previous step (defaults to 3307 if not set)
-        $mysqlPort = if ($env:MYSQL_PORT) { $env:MYSQL_PORT } else { "3307" }
-        Write-Host "Connecting backend to MySQL on port: $mysqlPort"
-
-        cd backend
-        mvn clean package -DskipTests
-
-        # Start backend with output redirection to log file
-        $backendLogPath = Join-Path $PWD "backend-output.log"
-        Write-Host "Starting backend... (logs: $backendLogPath)"
-
-        # Resolve the JAR path before passing to Start-Job (PowerShell doesn't expand wildcards)
-        $jarFile = Get-ChildItem -Path "target" -Filter "*.jar" | Where-Object { $_.Name -notlike "*-original.jar" } | Select-Object -First 1 -ExpandProperty FullName
-        if (-not $jarFile) {
-          Write-Error "No JAR file found in target directory!"
-          exit 1
-        }
-        Write-Host "Found JAR file: $jarFile"
-
-        Start-Job -ScriptBlock {
-          param($port, $secret, $logPath, $workDir, $jar)
-          Set-Location $workDir
-          java -jar $jar `
-            --spring.datasource.url="jdbc:mysql://localhost:${port}/smartsplit-db" `
-            --spring.datasource.username=root `
-            --spring.datasource.password=rootpassword `
-            --app.jwt.secret=$secret `
-            --server.port=16048 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $mysqlPort, $env:APP_JWT_SECRET, $backendLogPath, $PWD, $jarFile | Out-Null
-
-        Write-Host "Backend started, waiting 40 seconds for initialization..."
-        Start-Sleep -Seconds 40
-
-        # Check if backend is listening on port 16048
-        $backendPort = netstat -ano | Select-String ":16048.*LISTENING"
-        if ($backendPort) {
-          Write-Host "Backend is listening on port 16048"
-        } else {
-          Write-Warning "Backend is NOT listening on port 16048!"
-          Write-Host "Backend log (last 50 lines):"
-          if (Test-Path $backendLogPath) {
-            Get-Content $backendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
-          } else {
-            Write-Host "Log file not found"
-          }
-        }
-
-    - name: Install Frontend Dependencies
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        # Remove only node_modules, keep package-lock.json for consistent dependency resolution
-        Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
-        # Use npm ci for faster, deterministic installs from lockfile
-        npm ci --legacy-peer-deps
-
-    - name: Start Frontend
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $frontendPath = Get-Location
-        $frontendLogPath = Join-Path $frontendPath "frontend-output.log"
-        Write-Host "Starting frontend on port 3003... (logs: $frontendLogPath)"
-
-        # Start frontend using cmd /c to properly set environment variables in the same shell context
-        # PowerShell's $env:PORT inside Start-Job doesn't reliably pass to child processes on Windows
-        Start-Job -ScriptBlock {
-          param($workDir, $logPath)
-          Set-Location $workDir
-          cmd /c "set PORT=3003 && set BROWSER=none && npm start" 2>&1 | Tee-Object -FilePath $logPath
-        } -ArgumentList $frontendPath, $frontendLogPath | Out-Null
-
-        Write-Host "Frontend started, waiting 90 seconds for initialization..."
-        Start-Sleep -Seconds 90
-
-        # Check if frontend is listening on port 3003
-        $frontendPort = netstat -ano | Select-String ":3003.*LISTENING"
-        if ($frontendPort) {
-          Write-Host "Frontend is listening on port 3003"
-        } else {
-          Write-Warning "Frontend is NOT listening on port 3003!"
-          Write-Host "Checking if frontend is on default port 3000..."
-          $port3000 = netstat -ano | Select-String ":3000.*LISTENING"
-          if ($port3000) {
-            Write-Warning "Frontend is listening on port 3000 instead of 3003!"
-          }
-          Write-Host "Frontend log (last 50 lines):"
-          if (Test-Path $frontendLogPath) {
-            Get-Content $frontendLogPath -Tail 50 | ForEach-Object { Write-Host $_ }
-          } else {
-            Write-Host "Log file not found"
-          }
-        }
-
-    - name: Verify Services Started
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Write-Host "=== Verifying Services ==="
-
-        # Check for node processes
-        Write-Host "`nNode processes:"
-        $nodeProcesses = Get-Process node -ErrorAction SilentlyContinue
-        if ($nodeProcesses) {
-          $nodeProcesses | Format-Table Id, ProcessName, StartTime -AutoSize
-        } else {
-          Write-Warning "No node processes found!"
-        }
-
-        # Check for java processes
-        Write-Host "`nJava processes:"
-        $javaProcesses = Get-Process java -ErrorAction SilentlyContinue
-        if ($javaProcesses) {
-          $javaProcesses | Format-Table Id, ProcessName, StartTime -AutoSize
-        } else {
-          Write-Warning "No java processes found!"
-        }
-
-        # Show ALL listening ports (to see what's actually bound)
-        Write-Host "`nAll listening ports (showing common dev ports):"
-        netstat -ano | Select-String "LISTENING" | Select-String ":3000|:3003|:8080|:8081|:16048|:3307" | ForEach-Object { Write-Host "  $_" }
-
-        # Check what's listening on critical ports
-        Write-Host "`nPort 3003 (Frontend):"
-        $port3003 = netstat -ano | Select-String ":3003.*LISTENING"
-        if ($port3003) {
-          $port3003 | ForEach-Object { Write-Host "  $_" }
-        } else {
-          Write-Warning "Nothing listening on port 3003!"
-        }
-
-        Write-Host "`nPort 16048 (Backend):"
-        $port16048 = netstat -ano | Select-String ":16048.*LISTENING"
-        if ($port16048) {
-          $port16048 | ForEach-Object { Write-Host "  $_" }
-        } else {
-          Write-Warning "Nothing listening on port 16048!"
-        }
-
-        # Try accessing the services
-        Write-Host "`nTesting frontend accessibility..."
-        try {
-          $frontendResponse = Invoke-WebRequest -Uri http://localhost:3003 -UseBasicParsing -TimeoutSec 3
-          Write-Host "✓ Frontend is accessible on port 3003 (Status: $($frontendResponse.StatusCode))"
-        } catch {
-          Write-Warning "✗ Frontend not yet accessible on port 3003: $_"
-        }
-
-        Write-Host "`nTesting backend accessibility..."
-        try {
-          $backendResponse = Invoke-WebRequest -Uri http://localhost:16048/api/actuator/health -UseBasicParsing -TimeoutSec 3
-          Write-Host "✓ Backend is accessible on port 16048 (Status: $($backendResponse.StatusCode))"
-        } catch {
-          Write-Warning "✗ Backend not yet accessible on port 16048: $_"
-        }
-
-        Write-Host "`n=== Verification Complete ==="
-
-    - name: Show Service Logs on Failure
-      if: always()
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        # Check if services are NOT running properly and show logs
-        $frontendRunning = netstat -ano | Select-String ":3003.*LISTENING"
-        $backendRunning = netstat -ano | Select-String ":16048.*LISTENING"
-
-        if (-not $frontendRunning) {
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "FRONTEND LOG (Not listening on port 3003)"
-          Write-Host "=========================================="
-          $frontendLog = Join-Path $env:GITHUB_WORKSPACE "frontend" | Join-Path -ChildPath "frontend-output.log"
-          if (Test-Path $frontendLog) {
-            Get-Content $frontendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          } else {
-            Write-Host "Frontend log file not found at: $frontendLog"
-          }
-        }
-
-        if (-not $backendRunning) {
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "BACKEND LOG (Not listening on port 16048)"
-          Write-Host "=========================================="
-          $backendLog = Join-Path $env:GITHUB_WORKSPACE "backend" | Join-Path -ChildPath "backend-output.log"
-          if (Test-Path $backendLog) {
-            Get-Content $backendLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          } else {
-            Write-Host "Backend log file not found at: $backendLog"
-          }
-        }
-
-        if ($frontendRunning -and $backendRunning) {
-          Write-Host "Both services are running properly, no logs needed"
-        }
-
-    - name: Wait for Services
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $maxAttempts = 30
-        $attempt = 0
-        while ($attempt -lt $maxAttempts) {
-          try {
-            $response = Invoke-WebRequest -Uri http://localhost:3003 -UseBasicParsing -TimeoutSec 5
-            if ($response.StatusCode -eq 200) {
-              Write-Host "Frontend is ready on port 3003"
-              break
-            }
-          } catch {
-            $attempt++
-            Write-Host "Waiting for frontend on port 3003... (Attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 5
-          }
-        }
-        if ($attempt -eq $maxAttempts) {
-          Write-Error "Frontend failed to start on port 3003 after $maxAttempts attempts"
-          exit 1
-        }
-        $attempt = 0
-        while ($attempt -lt $maxAttempts) {
-          try {
-            $response = Invoke-WebRequest -Uri http://localhost:16048/api/actuator/health -UseBasicParsing -TimeoutSec 5
-            if ($response.StatusCode -eq 200) {
-              Write-Host "Backend is ready"
-              break
-            }
-          } catch {
-            $attempt++
-            Write-Host "Waiting for backend... (Attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 5
-          }
-        }
-        if ($attempt -eq $maxAttempts) {
-          Write-Error "Backend failed to start on port 16048 after $maxAttempts attempts"
-          exit 1
-        }
-
-    - name: Run Cypress E2E Tests
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        CYPRESS_BASE_URL: http://localhost:3003
-      run: |
-        npx cypress run --headless --browser chrome
-
-    - name: Upload Cypress Screenshots
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cypress-screenshots
-        path: cypress/screenshots
-        if-no-files-found: ignore
-
-    - name: Upload Cypress Videos
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cypress-videos
-        path: cypress/videos
-        if-no-files-found: ignore
-
-    - name: Cleanup
-      if: always()
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Write-Host "Final cleanup..."
-
-        # Stop all Java and Node processes
-        Get-Process | Where-Object {$_.Path -like "*java*" -or $_.Path -like "*node*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-
-        # Force stop and remove MySQL container
-        $mysqlContainer = docker ps -aq -f name=mysql-ci
-        if ($mysqlContainer) {
-          Write-Host "Stopping and removing mysql-ci container..."
-          docker stop mysql-ci -t 0 2>$null
+      # --- TEARDOWN ---
+      - name: Teardown
+        if: always()
+        run: |
+          if ($env:BACKEND_PID) { Stop-Process -Id $env:BACKEND_PID -Force -ErrorAction SilentlyContinue }
+          if ($env:FRONTEND_PID) { Stop-Process -Id $env:FRONTEND_PID -Force -ErrorAction SilentlyContinue }
           docker rm -f mysql-ci 2>$null
-        }
-
-        # Remove network
-        $network = docker network ls -q -f name=smartsplit-ci-network
-        if ($network) {
-          Write-Host "Removing smartsplit-ci-network..."
           docker network rm smartsplit-ci-network 2>$null
-        }
+          # Final aggressive cleanup on ports
+          Get-NetTCPConnection -LocalPort 3307,16048,3003 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 
-        # Kill any remaining processes on critical ports
-        $ports = @(3307, 16048, 3003)
-        foreach ($port in $ports) {
-          $processOnPort = netstat -ano | Select-String ":$port" | Select-String "LISTENING"
-          if ($processOnPort) {
-            $processOnPort | ForEach-Object {
-              $line = $_.Line -split '\s+'
-              $pid = $line[-1]
-              if ($pid -match '^\d+$' -and $pid -ne 0 -and $pid -ne 4) {
-                Write-Host "Killing remaining process $pid on port ${port}..."
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-              }
-            }
-          }
-        }
-
-        Write-Host "Cleanup finished"
-
-  build-and-push:
-    runs-on: self-hosted
-    name: Build and Push Docker Images
-    needs: [test, e2e-test]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Verify Docker is Running
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $maxAttempts = 10
-        $attempt = 0
-        while ($attempt -lt $maxAttempts) {
-          try {
-            docker info | Out-Null
-            Write-Host "Docker is running"
-            break
-          } catch {
-            $attempt++
-            Write-Host "Waiting for Docker to start... (Attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 5
-          }
-        }
-        if ($attempt -eq $maxAttempts) {
-          Write-Error "Docker failed to start"
-          exit 1
-        }
-      
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
-    - name: Build Backend Image
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        # Build with dual tags: :latest (convenience) and :${gitSha} (immutable, used in deployments)
-        docker build -t "${backendImage}:latest" -t "${backendImage}:${gitSha}" ./backend
-        
-    - name: Build Frontend Image
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        # Build with dual tags: :latest (convenience) and :${gitSha} (immutable, used in deployments)
-        docker build -t "${frontendImage}:latest" -t "${frontendImage}:${gitSha}" ./frontend
-        
-    - name: Push Backend to Docker Hub
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker push "${backendImage}:latest"
-        docker push "${backendImage}:${gitSha}"
-        
-    - name: Push Frontend to Docker Hub
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker push "${frontendImage}:latest"
-        docker push "${frontendImage}:${gitSha}"
-
-  deploy:
-    needs: build-and-push
-    runs-on: self-hosted
+  # ------------------------------------------------------------------
+  # JOB 3: BUILD & DEPLOY
+  # ------------------------------------------------------------------
+  build-and-deploy:
+    name: Build & Deploy
+    needs: [unit-test, e2e-test]
     if: github.ref == 'refs/heads/main'
+    runs-on: self-hosted
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Update Kubernetes Deployments
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        # Use git SHA for immutable deployments instead of :latest
-        kubectl set image deployment/backend backend="${backendImage}:${gitSha}" -n smartsplit
-        kubectl set image deployment/frontend frontend="${frontendImage}:${gitSha}" -n smartsplit
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-        # Add annotation to force rollout with build timestamp
-        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-        kubectl patch deployment backend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
-        kubectl patch deployment frontend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
-        
-    - name: Wait for Rollout
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        kubectl rollout status deployment/backend -n smartsplit --timeout=300s
-        kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
-        
-    - name: Verify Deployment
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        kubectl get pods -n smartsplit
-        Write-Host 'Deployment completed successfully!'
+      - name: Build and Push Images
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          # Build Backend
+          docker build -t "${{ env.BACKEND_IMAGE }}:latest" -t "${{ env.BACKEND_IMAGE }}:${{ env.SHA }}" ./backend
+          docker push "${{ env.BACKEND_IMAGE }}:latest"
+          docker push "${{ env.BACKEND_IMAGE }}:${{ env.SHA }}"
+
+          # Build Frontend
+          docker build -t "${{ env.FRONTEND_IMAGE }}:latest" -t "${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}" ./frontend
+          docker push "${{ env.FRONTEND_IMAGE }}:latest"
+          docker push "${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}"
+
+      - name: Deploy to Kubernetes
+        run: |
+          $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+          $sha = "${{ github.sha }}"
+          
+          # Update Images
+          kubectl set image deployment/backend backend="${{ env.BACKEND_IMAGE }}:$sha" -n smartsplit
+          kubectl set image deployment/frontend frontend="${{ env.FRONTEND_IMAGE }}:$sha" -n smartsplit
+          
+          # Force rollout via annotation
+          kubectl patch deployment backend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
+          kubectl patch deployment frontend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
+          
+          # Wait for status
+          kubectl rollout status deployment/backend -n smartsplit --timeout=300s
+          kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
