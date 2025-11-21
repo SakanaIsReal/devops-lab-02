@@ -128,34 +128,58 @@ jobs:
         working-directory: ./frontend
         run: npm ci --legacy-peer-deps
 
-      # --- START SERVICES ---
+
+# --- START SERVICES ---
       - name: Start Application Stack
         env:
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
         run: |
           npm install -g wait-on
           
-          # 1. Start Backend in Background
+          # 1. Start Backend (Redirecting logs to file to prevent buffer locking)
           $jar = Get-ChildItem ./backend/target/*.jar | Where-Object { $_.Name -notlike "*original*" } | Select-Object -First 1
           Write-Host "Starting Backend JAR: $jar"
           
-          $backendProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "$jar", "--spring.datasource.url=jdbc:mysql://localhost:3307/smartsplit-db", "--spring.datasource.username=root", "--spring.datasource.password=rootpassword", "--server.port=16048", "--app.jwt.secret=$env:APP_JWT_SECRET" -PassThru -NoNewWindow
+          # CHANGE: Use 127.0.0.1 instead of localhost to force IPv4
+          # CHANGE: Redirect output to backend.log
+          $backendProcess = Start-Process -FilePath "java" -ArgumentList "-jar", "$jar", "--spring.datasource.url=jdbc:mysql://127.0.0.1:3307/smartsplit-db", "--spring.datasource.username=root", "--spring.datasource.password=rootpassword", "--server.port=16048", "--app.jwt.secret=$env:APP_JWT_SECRET" -RedirectStandardOutput "backend.log" -RedirectStandardError "backend.err" -PassThru -NoNewWindow
           "BACKEND_PID=$($backendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          # 2. Start Frontend in Background
+          # 2. Start Frontend
           Write-Host "Starting Frontend..."
           Set-Location ./frontend
           $env:PORT=3003
           $env:BROWSER="none"
-          $frontendProcess = Start-Process -FilePath "npm" -ArgumentList "start" -PassThru -NoNewWindow
+          # CHANGE: Redirect output to frontend.log
+          $frontendProcess = Start-Process -FilePath "npm" -ArgumentList "start" -RedirectStandardOutput "frontend.log" -RedirectStandardError "frontend.err" -PassThru -NoNewWindow
           "FRONTEND_PID=$($frontendProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Wait for Services
         timeout-minutes: 5
         run: |
           Write-Host "Waiting for Backend (16048) and Frontend (3003)..."
-          # Wait-on handles the polling logic efficiently
-          npx wait-on tcp:16048 tcp:3003 --timeout 300000
+          
+          # CHANGE: distinct wait-on commands to see which one fails
+          # Use 127.0.0.1 to match the Backend configuration
+          try {
+            Write-Host "Checking Backend..."
+            npx wait-on tcp:127.0.0.1:16048 --timeout 60000
+            Write-Host "Backend is UP!"
+            
+            Write-Host "Checking Frontend..."
+            npx wait-on tcp:127.0.0.1:3003 --timeout 120000
+            Write-Host "Frontend is UP!"
+          }
+          catch {
+            Write-Host "Service startup failed. Dumping logs..."
+            Write-Host "--- BACKEND LOGS ---"
+            Get-Content ..\backend.log -ErrorAction SilentlyContinue
+            Get-Content ..\backend.err -ErrorAction SilentlyContinue
+            Write-Host "--- FRONTEND LOGS ---"
+            Get-Content frontend.log -ErrorAction SilentlyContinue
+            Get-Content frontend.err -ErrorAction SilentlyContinue
+            exit 1
+          }
 
       # --- TEST EXECUTION ---
       - name: Run Cypress Tests
