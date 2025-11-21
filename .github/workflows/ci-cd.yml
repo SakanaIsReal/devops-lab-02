@@ -25,15 +25,16 @@ jobs:
       uses: actions/setup-node@v3
       with:
         node-version: '20'  # Updated from 18 to 20
-        
+
     - name: Install Frontend Dependencies
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
+        # Remove only node_modules, keep package-lock.json for consistent dependency resolution
         Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
-        Remove-Item package-lock.json -ErrorAction SilentlyContinue
-        npm install --legacy-peer-deps
-        
+        # Use npm ci for faster, deterministic installs from lockfile
+        npm ci --legacy-peer-deps
+
     - name: Install Cypress
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -420,9 +421,10 @@ jobs:
       working-directory: ./frontend
       shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
       run: |
+        # Remove only node_modules, keep package-lock.json for consistent dependency resolution
         Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
-        Remove-Item package-lock.json -ErrorAction SilentlyContinue
-        npm install --legacy-peer-deps
+        # Use npm ci for faster, deterministic installs from lockfile
+        npm ci --legacy-peer-deps
 
     - name: Start Frontend
       working-directory: ./frontend
