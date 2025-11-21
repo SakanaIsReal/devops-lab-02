@@ -30,7 +30,6 @@ jobs:
   unit-test:
     name: Unit Tests
     runs-on: self-hosted
-    if: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -87,7 +86,7 @@ jobs:
     name: E2E Tests
     runs-on: self-hosted
     if: false
-    # needs: unit-test
+    needs: unit-test
     
     steps:
       - name: Checkout code
@@ -166,8 +165,8 @@ jobs:
   # ------------------------------------------------------------------
   build-and-deploy:
     name: Build & Deploy
-    # needs: [unit-test, integration-test, e2e-test]
-    if: false
+    needs: [unit-test, integration-test, e2e-test]
+    if: github.ref == 'refs/heads/main'
     # github.ref == 'refs/heads/main'
     runs-on: self-hosted
     
