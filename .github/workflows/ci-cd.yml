@@ -54,7 +54,6 @@ jobs:
 
       - name: Test Backend
         working-directory: ./backend
-        # FIXED: Added quotes around the -D argument for PowerShell
         run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
   # ------------------------------------------------------------------
@@ -84,7 +83,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: './frontend/package-lock.json'
 
-      # --- AGGRESSIVE CLEANUP ---
+      # --- AGGRESSIVE CLEANUP (FIXED) ---
       - name: Pre-flight Cleanup
         run: |
           Write-Host "Cleaning up ports 3307, 16048, 3003..."
@@ -93,8 +92,18 @@ jobs:
              $pids = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
              foreach ($p in $pids) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
           }
-          docker rm -f mysql-ci 2>$null
-          docker network rm smartsplit-ci-network 2>$null
+          
+          # FIXED: Check if container exists before removing to avoid PowerShell error
+          if (docker ps -a -q -f name=mysql-ci) { 
+              Write-Host "Removing existing mysql-ci container..."
+              docker rm -f mysql-ci 
+          }
+          
+          # FIXED: Check if network exists before removing
+          if (docker network ls -q -f name=smartsplit-ci-network) { 
+              Write-Host "Removing existing network..."
+              docker network rm smartsplit-ci-network 
+          }
 
       # --- INFRASTRUCTURE ---
       - name: Start Database (Docker)
@@ -170,14 +179,17 @@ jobs:
             frontend/cypress/videos
           if-no-files-found: ignore
 
-      # --- TEARDOWN ---
+      # --- TEARDOWN (FIXED) ---
       - name: Teardown
         if: always()
         run: |
           if ($env:BACKEND_PID) { Stop-Process -Id $env:BACKEND_PID -Force -ErrorAction SilentlyContinue }
           if ($env:FRONTEND_PID) { Stop-Process -Id $env:FRONTEND_PID -Force -ErrorAction SilentlyContinue }
-          docker rm -f mysql-ci 2>$null
-          docker network rm smartsplit-ci-network 2>$null
+          
+          # FIXED: Conditional Docker cleanup to prevent exit code 1
+          if (docker ps -a -q -f name=mysql-ci) { docker rm -f mysql-ci }
+          if (docker network ls -q -f name=smartsplit-ci-network) { docker network rm smartsplit-ci-network }
+          
           # Final aggressive cleanup
           Get-NetTCPConnection -LocalPort 3307,16048,3003 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 
