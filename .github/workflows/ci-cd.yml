@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
 
-# prevents multiple runs on the same branch from colliding on ports
+# Prevents multiple runs on the same branch from colliding on ports
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +17,7 @@ env:
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-frontend
   # Common versions
   NODE_VERSION: '20'
-  JAVA_VERSION: '17' # Assuming 17 based on Spring Boot, adjust if needed
+  JAVA_VERSION: '17'
 
 defaults:
   run:
@@ -48,15 +48,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: './frontend/package-lock.json'
 
-      - name: Install & Lint Frontend
+      - name: Install Frontend Dependencies
         working-directory: ./frontend
-        run: |
-          npm ci --legacy-peer-deps
-          # Add lint command here if you have one, e.g., npm run lint
+        run: npm ci --legacy-peer-deps
 
       - name: Test Backend
         working-directory: ./backend
-        run: mvn test -Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}
+        # FIXED: Added quotes around the -D argument for PowerShell
+        run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
 
   # ------------------------------------------------------------------
   # JOB 2: E2E TESTS (Complex Integration)
@@ -64,7 +63,7 @@ jobs:
   e2e-test:
     name: E2E Tests
     runs-on: self-hosted
-    needs: unit-test # Only run expensive E2E if unit tests pass
+    needs: unit-test
     
     steps:
       - name: Checkout code
@@ -96,8 +95,6 @@ jobs:
           }
           docker rm -f mysql-ci 2>$null
           docker network rm smartsplit-ci-network 2>$null
-          # Restart WinNat only if absolutely necessary, it can be disruptive
-          # Restart-Service -Name WinNat -Force -ErrorAction SilentlyContinue
 
       # --- INFRASTRUCTURE ---
       - name: Start Database (Docker)
@@ -112,8 +109,9 @@ jobs:
             --health-interval=10s --health-retries=5 `
             mysql:8.0
 
-      - name: Build Backend
+      - name: Build Backend (Skip Tests)
         working-directory: ./backend
+        # We skip tests here because we ran them in job 1, saves time & config issues
         run: mvn clean package -DskipTests
 
       - name: Install Frontend Dependencies
@@ -180,7 +178,7 @@ jobs:
           if ($env:FRONTEND_PID) { Stop-Process -Id $env:FRONTEND_PID -Force -ErrorAction SilentlyContinue }
           docker rm -f mysql-ci 2>$null
           docker network rm smartsplit-ci-network 2>$null
-          # Final aggressive cleanup on ports
+          # Final aggressive cleanup
           Get-NetTCPConnection -LocalPort 3307,16048,3003 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 
   # ------------------------------------------------------------------
