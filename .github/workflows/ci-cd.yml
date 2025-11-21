@@ -101,6 +101,12 @@ jobs:
           Start-Sleep -Seconds 5
           npx wait-on http://127.0.0.1:8080 --timeout 60000
 
+      # --- SEED TEST DATA ---
+      - name: Seed Test Data
+        run: |
+          Write-Host "Seeding test data into database..."
+          Get-Content cypress/seed-data.sql | docker exec -i devops-lab-02-db-1 mysql -uroot -psmartsplit_test_password `smartsplit-db`
+
       # --- RUN TEST ---
       - name: Run Cypress Tests
         uses: cypress-io/github-action@v6
