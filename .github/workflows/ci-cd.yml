@@ -105,7 +105,7 @@ jobs:
       - name: Seed Test Data
         run: |
           Write-Host "Seeding test data into database..."
-          Get-Content cypress/seed-data.sql | docker exec -i devops-lab-02-db-1 mysql -uroot -psmartsplit_test_password `smartsplit-db`
+          Get-Content cypress/seed-data.sql | docker exec -i devops-lab-02-db-1 mysql -uroot -psmartsplit_test_password "smartsplit-db"
 
       # --- RUN TEST ---
       - name: Run Cypress Tests
