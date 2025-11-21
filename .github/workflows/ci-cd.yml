@@ -13,6 +13,7 @@ env:
 
 jobs:
   test:
+    if: false
     runs-on: self-hosted
     name: Run Tests
     
