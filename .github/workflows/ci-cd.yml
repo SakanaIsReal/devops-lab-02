@@ -98,9 +98,7 @@ jobs:
         uses: cypress-io/github-action@v6
         with:
           working-directory: ./frontend
-          install: false # We use the container, but Cypress runs on host
-          start: false   # Already running in Docker
-          wait-on: 'http://localhost:8080' # The Docker mapped port
+          install-command: npm install cypress --legacy-peer-deps
           browser: chrome
         env:
           # Cypress (on Host) talks to Frontend (on Host Port 8080)

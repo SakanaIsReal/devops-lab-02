@@ -52,6 +52,10 @@ services:
     volumes:
       - uploads_data:/app/uploads
     restart: always
+    networks:
+      default:
+        aliases:
+          - backend.smartsplit.svc.cluster.local
 
   frontend:
     build:
