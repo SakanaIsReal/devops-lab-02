@@ -1,4 +1,3 @@
-
 package com.smartsplit.smartsplitback.service;
 
 import com.smartsplit.smartsplitback.model.Role;
@@ -37,7 +36,6 @@ class AuthServiceTest {
         MockitoAnnotations.openMocks(this);
     }
 
-    // ---------- Helpers ----------
     private static User newUser(Long id, String email, String userName, String phone, String passwordHash, Role role) {
         User u = new User();
         u.setId(id);
@@ -49,23 +47,25 @@ class AuthServiceTest {
         return u;
     }
 
-    // ================== REGISTER ==================
     @Nested
     @DisplayName("register(...)")
     class RegisterTests {
 
         @Test
-        @DisplayName("สร้างผู้ใช้ใหม่ -> encode -> save -> JWT(86400s) -> AuthResponse ถูกต้อง")
+        @DisplayName("สร้างผู้ใช้ใหม่ -> encode -> save -> JWT(86400s) -> AuthResponse ถูกต้อง (พร้อม first/last name)")
         void register_success() {
-          
             RegisterRequest req = new RegisterRequest(
-                    "alice@example.com", "Passw0rd!", "Alice", "0990000000"
+                    "alice@example.com",
+                    "Alice",
+                    "0990000000",
+                    "Passw0rd!",
+                    " Alice  ",
+                    "  Liddell "
             );
 
             when(users.findByEmail("alice@example.com")).thenReturn(Optional.empty());
             when(encoder.encode("Passw0rd!")).thenReturn("HASHED_PASS");
 
-            // จำลอง behavior ของ JPA save: ใส่ id กลับเข้าไปใน entity เดิม
             doAnswer(inv -> {
                 User u = inv.getArgument(0, User.class);
                 u.setId(1L);
@@ -84,16 +84,17 @@ class AuthServiceTest {
             assertThat(resp.email()).isEqualTo("alice@example.com");
             assertThat(resp.userName()).isEqualTo("Alice");
             assertThat(resp.role()).isEqualTo(Role.USER.code());
+            assertThat(resp.phone()).isEqualTo("0990000000");
+
+            ArgumentCaptor<User> userCap = ArgumentCaptor.forClass(User.class);
+            verify(users).save(userCap.capture());
+            User saved = userCap.getValue();
+            assertThat(saved.getFirstName()).isEqualTo("Alice");
+            assertThat(saved.getLastName()).isEqualTo("Liddell");
 
             verify(users).findByEmail("alice@example.com");
             verify(encoder).encode("Passw0rd!");
-            verify(users).save(argThat(u ->
-                    u.getEmail().equals("alice@example.com")
-                            && u.getUserName().equals("Alice")
-                            && u.getPhone().equals("0990000000")
-                            && u.getPasswordHash().equals("HASHED_PASS")
-                            && u.getRole() == Role.USER
-            ));
+            verify(jwt).generate(anyString(), anyMap(), eq(60L * 60L * 24L));
 
             ArgumentCaptor<String> subCap = ArgumentCaptor.forClass(String.class);
             @SuppressWarnings("unchecked")
@@ -102,7 +103,7 @@ class AuthServiceTest {
 
             verify(jwt).generate(subCap.capture(), claimsCap.capture(), ttlCap.capture());
             assertThat(subCap.getValue()).isEqualTo("1");
-            assertThat(ttlCap.getValue()).isEqualTo(60L * 60L * 24L);
+            assertThat(ttlCap.getValue()).isEqualTo(86400L);
 
             Map<String, Object> claims = claimsCap.getValue();
             assertThat(claims).containsEntry("uid", 1L);
@@ -112,11 +113,47 @@ class AuthServiceTest {
         }
 
         @Test
-        @DisplayName("email ซ้ำ -> 409 CONFLICT และไม่เรียก encode/save/jwt")
-        void register_duplicateEmail_conflict() {
-           
+        @DisplayName("trim/blank: firstName/lastName เป็นช่องว่าง -> ถูกบันทึกเป็น null")
+        void register_trims_blank_names_to_null() {
             RegisterRequest req = new RegisterRequest(
-                    "dup@example.com", "p@ss", "Dup", "0911111111"
+                    "trim@example.com",
+                    "TrimUser",
+                    "0888888888",
+                    "S3cret!",
+                    "   ",
+                    ""
+            );
+
+            when(users.findByEmail("trim@example.com")).thenReturn(Optional.empty());
+            when(encoder.encode("S3cret!")).thenReturn("HASH_TRIM");
+            doAnswer(inv -> {
+                User u = inv.getArgument(0, User.class);
+                u.setId(77L);
+                return u;
+            }).when(users).save(any(User.class));
+            when(jwt.generate(anyString(), anyMap(), anyLong())).thenReturn("jwt-trim");
+
+            AuthResponse resp = authService.register(req);
+
+            assertThat(resp.userId()).isEqualTo(77L);
+
+            ArgumentCaptor<User> cap = ArgumentCaptor.forClass(User.class);
+            verify(users).save(cap.capture());
+            User saved = cap.getValue();
+            assertThat(saved.getFirstName()).isNull();
+            assertThat(saved.getLastName()).isNull();
+        }
+
+        @Test
+        @DisplayName("อีเมลซ้ำ -> 409 และไม่เรียก encode/save/jwt")
+        void register_duplicateEmail_conflict() {
+            RegisterRequest req = new RegisterRequest(
+                    "dup@example.com",
+                    "Dup",
+                    "0911111111",
+                    "p@ss",
+                    null,
+                    null
             );
 
             when(users.findByEmail("dup@example.com"))
@@ -131,16 +168,45 @@ class AuthServiceTest {
             verify(users, never()).save(any());
             verify(jwt, never()).generate(anyString(), anyMap(), anyLong());
         }
+
+        @Test
+        @DisplayName("รหัสผ่านมีอักขระพิเศษ/ยาวมาก -> encode ถูกเรียก และ save สำเร็จ")
+        void register_password_edge_cases() {
+            String longPw = "Aa!" + "x".repeat(200);
+            RegisterRequest req = new RegisterRequest(
+                    "edge@example.com",
+                    "Edge",
+                    "0800000000",
+                    longPw,
+                    "Edge",
+                    "Case"
+            );
+
+            when(users.findByEmail("edge@example.com")).thenReturn(Optional.empty());
+            when(encoder.encode(longPw)).thenReturn("HASH_LONG");
+            doAnswer(inv -> {
+                User u = inv.getArgument(0, User.class);
+                u.setId(555L);
+                return u;
+            }).when(users).save(any(User.class));
+            when(jwt.generate(anyString(), anyMap(), anyLong())).thenReturn("jwt-edge");
+
+            AuthResponse resp = authService.register(req);
+            assertThat(resp.userId()).isEqualTo(555L);
+
+            verify(encoder).encode(longPw);
+            verify(users).save(any(User.class));
+            verify(jwt).generate(eq("555"), anyMap(), eq(86400L));
+        }
     }
 
-    // ================== LOGIN ==================
     @Nested
     @DisplayName("login(...)")
     class LoginTests {
 
         @Test
-        @DisplayName("email/รหัสถูกต้อง -> JWT(86400s) + AuthResponse")
-        void login_success() {
+        @DisplayName("USER: อีเมล/รหัสถูกต้อง -> JWT(86400s) + AuthResponse")
+        void login_success_user() {
             LoginRequest req = new LoginRequest("bob@example.com", "P@ss1234");
 
             User persisted = newUser(2L, "bob@example.com", "Bob", "0900000000", "HASHED_X", Role.USER);
@@ -157,6 +223,7 @@ class AuthServiceTest {
             assertThat(resp.email()).isEqualTo("bob@example.com");
             assertThat(resp.userName()).isEqualTo("Bob");
             assertThat(resp.role()).isEqualTo(Role.USER.code());
+            assertThat(resp.phone()).isEqualTo("0900000000");
 
             verify(users).findByEmail("bob@example.com");
             verify(encoder).matches("P@ss1234", "HASHED_X");
@@ -178,7 +245,28 @@ class AuthServiceTest {
         }
 
         @Test
-        @DisplayName("email ไม่พบ -> 401 UNAUTHORIZED")
+        @DisplayName("ADMIN: role ต้องสะท้อนเป็น ADMIN.code() ใน JWT/response")
+        void login_success_admin_role() {
+            LoginRequest req = new LoginRequest("root@example.com", "Sup3r!");
+
+            User admin = newUser(42L, "root@example.com", "Root", "0700000000", "HASHED_ADMIN", Role.ADMIN);
+            when(users.findByEmail("root@example.com")).thenReturn(Optional.of(admin));
+            when(encoder.matches("Sup3r!", "HASHED_ADMIN")).thenReturn(true);
+            when(jwt.generate(anyString(), anyMap(), anyLong())).thenReturn("jwt-admin");
+
+            AuthResponse resp = authService.login(req);
+
+            assertThat(resp.accessToken()).isEqualTo("jwt-admin");
+            assertThat(resp.role()).isEqualTo(Role.ADMIN.code());
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<Map<String, Object>> claimsCap = ArgumentCaptor.forClass(Map.class);
+            verify(jwt).generate(eq("42"), claimsCap.capture(), eq(86400L));
+            assertThat(claimsCap.getValue()).containsEntry("role", Role.ADMIN.code());
+        }
+
+        @Test
+        @DisplayName("อีเมลไม่พบ -> 401 UNAUTHORIZED")
         void login_emailNotFound_unauthorized() {
             LoginRequest req = new LoginRequest("noone@example.com", "whatever");
             when(users.findByEmail("noone@example.com")).thenReturn(Optional.empty());
@@ -193,7 +281,7 @@ class AuthServiceTest {
         }
 
         @Test
-        @DisplayName("password ผิด -> 401 UNAUTHORIZED")
+        @DisplayName("รหัสผ่านผิด -> 401 UNAUTHORIZED")
         void login_wrongPassword_unauthorized() {
             LoginRequest req = new LoginRequest("bob@example.com", "wrong");
             User persisted = newUser(2L, "bob@example.com", "Bob", "0900000000", "HASHED_X", Role.USER);

@@ -1,7 +1,7 @@
-// com.smartsplit.smartsplitback.service.AuthService.java
+// src/main/java/com/smartsplit/smartsplitback/service/AuthService.java
 package com.smartsplit.smartsplitback.service;
 
-import com.smartsplit.smartsplitback.model.Role;              // ← เพิ่ม
+import com.smartsplit.smartsplitback.model.Role;
 import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.model.dto.*;
 import com.smartsplit.smartsplitback.repository.UserRepository;
@@ -37,6 +37,18 @@ public class AuthService {
         u.setPhone(req.phone());
         u.setPasswordHash(encoder.encode(req.password()));
         u.setRole(Role.USER);
+
+        if (req.firstName() != null && !req.firstName().isBlank()) {
+            u.setFirstName(req.firstName().trim());
+        } else {
+            u.setFirstName(null);
+        }
+        if (req.lastName() != null && !req.lastName().isBlank()) {
+            u.setLastName(req.lastName().trim());
+        } else {
+            u.setLastName(null);
+        }
+
         users.save(u);
 
         int roleCode = u.getRole().code();

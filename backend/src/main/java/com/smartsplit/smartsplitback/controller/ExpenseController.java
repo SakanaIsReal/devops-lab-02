@@ -1,22 +1,33 @@
 package com.smartsplit.smartsplitback.controller;
 
-import com.smartsplit.smartsplitback.model.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartsplit.smartsplitback.model.Expense;
+import com.smartsplit.smartsplitback.model.Group;
+import com.smartsplit.smartsplitback.model.User;
 import com.smartsplit.smartsplitback.model.dto.ExpenseDto;
-import com.smartsplit.smartsplitback.model.dto.ExpenseItemDto;
-import com.smartsplit.smartsplitback.service.ExpenseService;
-import com.smartsplit.smartsplitback.service.GroupService;
-import com.smartsplit.smartsplitback.service.UserService;
+import com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto;
+import com.smartsplit.smartsplitback.security.Perms;
+import com.smartsplit.smartsplitback.service.ExpenseExportService;
 import com.smartsplit.smartsplitback.service.ExpenseItemService;
 import com.smartsplit.smartsplitback.service.ExpensePaymentService;
+import com.smartsplit.smartsplitback.service.ExpenseService;
+import com.smartsplit.smartsplitback.service.ExpenseSettlementService;
+import com.smartsplit.smartsplitback.service.ExchangeRateService;
+import com.smartsplit.smartsplitback.service.GroupService;
+import com.smartsplit.smartsplitback.service.UserService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import com.smartsplit.smartsplitback.model.dto.ExpenseSettlementDto;
-import com.smartsplit.smartsplitback.service.ExpenseSettlementService;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -30,21 +41,33 @@ public class ExpenseController {
 
     private final ExpenseItemService itemService;
     private final ExpensePaymentService paymentService;
+    private final Perms perm;
+
+    private final ExpenseExportService exportService;
+    private final ExchangeRateService fx;
+    private final ObjectMapper objectMapper;
 
     public ExpenseController(ExpenseService expenses,
                              GroupService groups,
                              UserService users,
                              ExpenseItemService itemService,
                              ExpensePaymentService paymentService,
-                             ExpenseSettlementService settlementService) {
+                             ExpenseSettlementService settlementService,
+                             Perms perm,
+                             ExpenseExportService exportService,
+                             ExchangeRateService fx,
+                             ObjectMapper objectMapper) {
         this.expenses = expenses;
         this.groups = groups;
         this.users = users;
         this.itemService = itemService;
         this.paymentService = paymentService;
         this.settlementService = settlementService;
+        this.perm = perm;
+        this.exportService = exportService;
+        this.fx = fx;
+        this.objectMapper = objectMapper;
     }
-
 
     @PreAuthorize("@perm.isAdmin()")
     @GetMapping
@@ -56,45 +79,149 @@ public class ExpenseController {
         return list.stream().map(ExpenseController::toDto).toList();
     }
 
-
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}")
-    public ExpenseDto get(@PathVariable Long id){
+    public ResponseEntity<?> get(@PathVariable Long id){
         var e = expenses.get(id);
-        if(e==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Expense not found");
-        return toDto(e);
-    }
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
 
+        var dto = toDto(e);
+        com.fasterxml.jackson.databind.node.ObjectNode json = objectMapper.valueToTree(dto);
+
+        var statusNode = json.get("status");
+        if (statusNode != null && "SETTLED".equalsIgnoreCase(statusNode.asText())) {
+            if (isExpenseFullyPaid(e)) {
+                json.put("status", "COMPLETE");
+            }
+        }
+
+        return ResponseEntity.ok(json);
+    }
 
     @PreAuthorize("@perm.isGroupMember(#groupId)")
     @GetMapping("/group/{groupId}")
-    public List<ExpenseDto> listByGroupForMember(@PathVariable Long groupId) {
+    public List<com.fasterxml.jackson.databind.node.ObjectNode> listByGroupForMember(@PathVariable Long groupId) {
         return expenses.listByGroup(groupId).stream()
-                .map(ExpenseController::toDto)
+                .map(e -> {
+
+                    var dto = toDto(e);
+                    com.fasterxml.jackson.databind.node.ObjectNode json = objectMapper.valueToTree(dto);
+                    var statusNode = json.get("status");
+                    if (statusNode != null && "SETTLED".equalsIgnoreCase(statusNode.asText())) {
+                        if (isExpenseFullyPaid(e)) {
+                            json.put("status", "COMPLETE");
+                        }
+                    }
+
+                    return json;
+                })
                 .toList();
     }
 
 
     @PreAuthorize("@perm.canCreateExpenseInGroup(#in.groupId())")
-    @PostMapping @ResponseStatus(HttpStatus.CREATED)
-    public ExpenseDto create(@RequestBody ExpenseDto in){
-        if(in.groupId()==null || in.payerUserId()==null)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"groupId and payerUserId are required");
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ExpenseDto create(
+            @RequestBody ExpenseDto in,
+            @RequestParam(name = "currency", defaultValue = "THB") String currency,
+            @RequestParam(name = "ratesJson", required = false) String ratesJson
+    ) {
+        if (in.groupId() == null || in.payerUserId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId and payerUserId are required");
+        }
 
         Group g = groups.get(in.groupId());
-        if(g==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Group not found");
+        if (g == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
         User p = users.get(in.payerUserId());
-        if(p==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Payer user not found");
+        if (p == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Payer user not found");
+
+        Map<String, BigDecimal> rates;
+
+        if (ratesJson != null && !ratesJson.isBlank()) {
+
+            Map<String, BigDecimal> baseRates;
+            try {
+                baseRates = fx.getLiveRatesToThb();
+            } catch (Exception ex) {
+
+                baseRates = new HashMap<>();
+                baseRates.put("THB", BigDecimal.ONE);
+            }
+
+            try {
+                var node = objectMapper.readTree(ratesJson);
+                if (!node.isObject()) {
+                    throw new IllegalArgumentException("ratesJson must be an object");
+                }
+
+                Map<String, BigDecimal> merged = new HashMap<>(baseRates);
+                var fields = node.fields();
+                while (fields.hasNext()) {
+                    var f = fields.next();
+                    String ccy = f.getKey().toUpperCase(Locale.ROOT);
+                    if (!f.getValue().isNumber() && !f.getValue().canConvertToExactIntegral()) {
+                        throw new IllegalArgumentException("rate for " + ccy + " must be numeric");
+                    }
+                    BigDecimal v = f.getValue().decimalValue();
+                    if (v == null || v.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("rate for " + ccy + " must be > 0");
+                    }
+                    merged.put(ccy, v);
+                }
+                merged.put("THB", BigDecimal.ONE);
+
+                rates = merged;
+            } catch (Exception ex) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Invalid ratesJson: " + ex.getMessage()
+                );
+            }
+        } else {
+
+            try {
+                rates = fx.getLiveRatesToThb();
+            } catch (Exception ex) {
+                if (!"THB".equalsIgnoreCase(currency)) {
+                    throw new ResponseStatusException(
+                            HttpStatus.SERVICE_UNAVAILABLE,
+                            "Exchange rate service unavailable; cannot convert " + currency + " to THB right now"
+                    );
+                }
+                rates = Map.of("THB", BigDecimal.ONE);
+            }
+        }
+
+
+        BigDecimal thbAmount;
+        if ("THB".equalsIgnoreCase(currency)) {
+            thbAmount = in.amount();
+        } else {
+            BigDecimal rate = rates.get(currency.toUpperCase(Locale.ROOT));
+            if (rate == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Missing rate for currency: " + currency);
+            }
+            thbAmount = in.amount().multiply(rate).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
 
         Expense e = new Expense();
         e.setGroup(g);
         e.setPayer(p);
-        e.setAmount(in.amount());
+        e.setAmount(thbAmount);
         e.setType(in.type());
         e.setTitle(in.title());
         e.setStatus(in.status());
+        try {
+            e.setExchangeRatesJson(objectMapper.writeValueAsString(rates));
+        } catch (Exception ex) {
+            e.setExchangeRatesJson("{\"THB\":1}");
+        }
+
         return toDto(expenses.save(e));
     }
+
 
 
     @PreAuthorize("@perm.canManageExpense(#id)")
@@ -121,21 +248,27 @@ public class ExpenseController {
         return toDto(expenses.save(e));
     }
 
-
     @PreAuthorize("@perm.canManageExpense(#id)")
     @DeleteMapping("/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id){
         if(expenses.get(id)==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Expense not found");
         expenses.delete(id);
-
     }
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/total-items")
     public BigDecimal itemsTotal(@PathVariable Long id) {
-        return itemService.sumItems(id);
-    }
+        var e = expenses.get(id);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
 
+        var rates = fx.getRatesToThb(e); // จะใช้ exchangeRatesJson ที่ล็อกไว้
+        var list = itemService.listByExpense(id);
+        if (list == null || list.isEmpty()) return BigDecimal.ZERO;
+
+        return list.stream()
+                .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/total-verified")
@@ -143,15 +276,31 @@ public class ExpenseController {
         return paymentService.sumVerified(id);
     }
 
-
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/summary")
     public Map<String, BigDecimal> summary(@PathVariable Long id) {
+        var e = expenses.get(id);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
+
+        var rates = fx.getRatesToThb(e);
+        var list = itemService.listByExpense(id);
+
+        BigDecimal itemsTotalThb = (list == null || list.isEmpty())
+                ? BigDecimal.ZERO
+                : list.stream()
+                .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal verifiedTotal = paymentService.sumVerified(id)
+                .setScale(2, RoundingMode.HALF_UP);
+
         return Map.of(
-                "itemsTotal", itemService.sumItems(id),
-                "verifiedTotal", paymentService.sumVerified(id)
+                "itemsTotal", itemsTotalThb,
+                "verifiedTotal", verifiedTotal
         );
     }
+
 
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/settlement/{userId}")
@@ -160,11 +309,91 @@ public class ExpenseController {
         return settlementService.userSettlement(id, userId);
     }
 
-
     @PreAuthorize("@perm.canViewExpense(#id)")
     @GetMapping("/{id}/settlement")
-    public List<ExpenseSettlementDto> settlementAll(@PathVariable Long id) {
-        return settlementService.allSettlements(id);
+    public ResponseEntity<?> settlementAll(@PathVariable Long id) {
+        var e = expenses.get(id);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
+
+        Long payerId = e.getPayer().getId();
+        var list = settlementService.allSettlements(id);
+        var array = objectMapper.valueToTree(list);
+        if (array.isArray()) {
+            for (var node : array) {
+                var userIdNode = node.get("userId");
+                if (userIdNode != null && userIdNode.isNumber() && userIdNode.asLong() == payerId) {
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("settled", true);
+                    // ((ObjectNode) node).put("remaining", 0);
+                }
+            }
+        }
+        return ResponseEntity.ok(array);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/participating")
+    public List<ExpenseDto> mySharedExpenses() {
+        Long me = perm.currentUserId();
+        if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+        return expenses.listByParticipant(me).stream()
+                .map(ExpenseController::toDto)
+                .toList();
+    }
+
+    @PreAuthorize("@perm.canViewExpense(#id)")
+    @GetMapping(value = "/{id}/export.pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> exportPdf(@PathVariable Long id) {
+        var e = expenses.get(id);
+        if (e == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Expense not found");
+
+        byte[] pdf = exportService.renderExpensePdf(id);
+        String fileName = ("expense-" + id + ".pdf");
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+                .body(pdf);
+    }
+
+    /**
+     * เช็คว่า expense จ่ายครบหรือยัง โดยคิดเฉพาะเงินที่ "คนอื่น" ต้องจ่ายให้เจ้าของบิล
+     * ใช้ owedAmount ของแต่ละคน (ยกเว้น payer) รวมกันเป็น expectedFromOthers
+     */
+    private boolean isExpenseFullyPaid(Expense e) {
+        Long expenseId = e.getId();
+        Long payerId = e.getPayer().getId();
+
+        BigDecimal verifiedTotal = paymentService.sumVerified(expenseId);
+        if (verifiedTotal == null) {
+            verifiedTotal = BigDecimal.ZERO;
+        }
+
+        List<ExpenseSettlementDto> settlements = settlementService.allSettlements(expenseId);
+        if (settlements == null || settlements.isEmpty()) {
+            // fallback: ใช้ logic เดิมเทียบกับยอด items ทั้งหมด
+            Map<String, BigDecimal> rates = fx.getRatesToThb(e);
+            var items = itemService.listByExpense(expenseId);
+
+            BigDecimal itemsTotal = (items == null || items.isEmpty())
+                    ? BigDecimal.ZERO
+                    : items.stream()
+                    .map(it -> fx.toThb(it.getCurrency(), it.getAmount(), rates))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            return verifiedTotal.compareTo(itemsTotal) >= 0;
+        }
+
+        // ใช้ owedAmount ของทุกคนที่ไม่ใช่ payer เป็นยอดที่ "คนอื่น" ต้องจ่าย
+        BigDecimal expectedFromOthers = BigDecimal.ZERO;
+        for (ExpenseSettlementDto s : settlements) {
+            if (s.userId() != null
+                    && !s.userId().equals(payerId)
+                    && s.owedAmount() != null) {
+                expectedFromOthers = expectedFromOthers.add(s.owedAmount());
+            }
+        }
+
+        return verifiedTotal.compareTo(expectedFromOthers) >= 0;
     }
 
     private static ExpenseDto toDto(Expense e){

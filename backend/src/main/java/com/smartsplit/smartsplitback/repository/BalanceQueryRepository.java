@@ -11,7 +11,7 @@ import java.util.List;
 public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
 
     @Query(value = """
-        /* ===== YOU OWE (คุณเป็นลูกหนี้) ===== */
+
         SELECT 
             'YOU_OWE'                                  AS direction,
             e.group_id                                 AS groupId,
@@ -23,13 +23,12 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
             up.avatar_url                              AS counterpartyAvatarUrl,
             ROUND( SUM(COALESCE(s.share_value, (s.share_percent/100.0)*i.amount))
                    - COALESCE(pay.paid, 0), 2)         AS remaining
-        FROM `group_members` gm
-        JOIN `expenses` e              ON e.group_id = gm.group_id
+        FROM `expenses` e
         JOIN `groups_tbl` g            ON g.group_id = e.group_id
         JOIN `expense_items` i         ON i.expense_id = e.expense_id
         JOIN `expense_item_shares` s   ON s.expense_item_id = i.expense_item_id
                                        AND s.participant_user_id = :userId
-        /* รวมเงินที่จ่ายแล้วต่อ expense ต่อผู้จ่าย เพื่อกันการนับซ้ำ */
+
         LEFT JOIN (
            SELECT expense_id, from_user_id,
                   SUM(CASE WHEN status = 'VERIFIED' THEN amount ELSE 0 END) AS paid
@@ -37,8 +36,7 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
            GROUP BY expense_id, from_user_id
         ) pay ON pay.expense_id = e.expense_id AND pay.from_user_id = :userId
         JOIN `users` up ON up.user_id = e.payer_user_id
-        WHERE gm.user_id = :userId
-          AND e.payer_user_id <> :userId
+        WHERE e.payer_user_id <> :userId
         GROUP BY e.group_id, g.name, e.expense_id, e.title,
                  e.payer_user_id, up.user_name, up.avatar_url, pay.paid
         HAVING (SUM(COALESCE(s.share_value, (s.share_percent/100.0)*i.amount))
@@ -46,7 +44,10 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
 
         UNION ALL
 
-        /* ===== OWES YOU (คนอื่นเป็นลูกหนี้คุณ) ===== */
+        /* ===== OWES YOU (คนอื่นเป็นลูกหนี้คุณ) =====
+           ผู้ใช้ (:userId) เป็น payer ของ expense นั้น
+           ไม่ต้องอยู่ใน group_members เช่นกัน
+        */
         SELECT 
             'OWES_YOU'                                 AS direction,
             e.group_id                                 AS groupId,
@@ -58,8 +59,7 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
             um.avatar_url                              AS counterpartyAvatarUrl,
             ROUND( SUM(COALESCE(s.share_value, (s.share_percent/100.0)*i.amount))
                    - COALESCE(pay.paid, 0), 2)         AS remaining
-        FROM `group_members` gm
-        JOIN `expenses` e              ON e.group_id = gm.group_id
+        FROM `expenses` e
         JOIN `groups_tbl` g            ON g.group_id = e.group_id
         JOIN `expense_items` i         ON i.expense_id = e.expense_id
         JOIN `expense_item_shares` s   ON s.expense_item_id = i.expense_item_id
@@ -71,8 +71,7 @@ public interface BalanceQueryRepository extends JpaRepository<Expense, Long> {
            GROUP BY expense_id, from_user_id
         ) pay ON pay.expense_id = e.expense_id AND pay.from_user_id = s.participant_user_id
         JOIN `users` um ON um.user_id = s.participant_user_id
-        WHERE gm.user_id = :userId
-          AND e.payer_user_id = :userId
+        WHERE e.payer_user_id = :userId
         GROUP BY e.group_id, g.name, e.expense_id, e.title,
                  s.participant_user_id, um.user_name, um.avatar_url, pay.paid
         HAVING (SUM(COALESCE(s.share_value, (s.share_percent/100.0)*i.amount))

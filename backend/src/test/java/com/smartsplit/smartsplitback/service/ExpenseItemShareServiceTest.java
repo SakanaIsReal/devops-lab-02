@@ -1,5 +1,6 @@
 package com.smartsplit.smartsplitback.service;
 
+import com.smartsplit.smartsplitback.model.Expense;
 import com.smartsplit.smartsplitback.model.ExpenseItem;
 import com.smartsplit.smartsplitback.model.ExpenseItemShare;
 import com.smartsplit.smartsplitback.model.User;
@@ -15,8 +16,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import static java.math.RoundingMode.HALF_UP;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -28,20 +31,37 @@ class ExpenseItemShareServiceTest {
     @Mock private UserRepository users;
     @Mock private GroupMemberRepository members;
     @Mock private ExpenseRepository expenses;
+    @Mock private ExchangeRateService fx;
 
     @InjectMocks private ExpenseItemShareService service;
+
+    private static BigDecimal bd6(String s) {
+        // helper ให้ทุก expected มีสเกล 6 ตำแหน่งเสมอ
+        return new BigDecimal(s).setScale(6, HALF_UP);
+    }
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
     }
 
-    // ===== Helpers =====
-    private static ExpenseItem item(Long id, BigDecimal amount) {
+    private static Expense makeExpense(Long id) {
+        Expense e = new Expense();
+        e.setId(id);
+        return e;
+    }
+
+    private static ExpenseItem item(Long id, BigDecimal amount, String currency, Expense expense) {
         ExpenseItem it = new ExpenseItem();
         it.setId(id);
         it.setAmount(amount);
+        it.setCurrency(currency);
+        it.setExpense(expense);
         return it;
+    }
+
+    private static ExpenseItem item(Long id, BigDecimal amount) {
+        return item(id, amount, "THB", makeExpense(999L));
     }
 
     private static User user(Long id, String email) {
@@ -58,10 +78,10 @@ class ExpenseItemShareServiceTest {
         s.setParticipant(u);
         s.setShareValue(value);
         s.setSharePercent(percent);
+        s.setShareOriginalValue(value);
         return s;
     }
 
-    // ================================= listByItemInExpense =================================
     @Nested
     @DisplayName("listByItemInExpense(expenseId, itemId)")
     class ListByItemInExpense {
@@ -73,8 +93,7 @@ class ExpenseItemShareServiceTest {
             when(items.existsByIdAndExpense_Id(itemId, expenseId)).thenReturn(true);
 
             List<ExpenseItemShare> mock = List.of(
-                    share(1L, item(itemId, new BigDecimal("10.00")),
-                            user(2L, "a@example.com"), new BigDecimal("3.33"), new BigDecimal("33.33"))
+                    share(1L, item(itemId, new BigDecimal("10.00")), user(2L, "a@example.com"), bd6("3.330000"), new BigDecimal("33.33"))
             );
             when(shares.findByExpenseItem_Id(itemId)).thenReturn(mock);
 
@@ -105,14 +124,13 @@ class ExpenseItemShareServiceTest {
         }
     }
 
-    // ================================= listByExpense =================================
     @Test
     @DisplayName("listByExpense(expenseId): คืน shares ทั้งหมดใน expense")
     void listByExpense_ok() {
         Long expenseId = 20L;
         List<ExpenseItemShare> mock = List.of(
-                share(1L, item(100L, new BigDecimal("10.00")), user(2L, "a@x"), new BigDecimal("5.00"), null),
-                share(2L, item(101L, new BigDecimal("9.99")), user(3L, "b@x"), new BigDecimal("3.33"), new BigDecimal("33.33"))
+                share(1L, item(100L, new BigDecimal("10.00")), user(2L, "a@x"), bd6("5.000000"), null),
+                share(2L, item(101L, new BigDecimal("9.99")), user(3L, "b@x"), bd6("3.330000"), new BigDecimal("33.33"))
         );
         when(shares.findByExpenseItem_Expense_Id(expenseId)).thenReturn(mock);
 
@@ -122,22 +140,25 @@ class ExpenseItemShareServiceTest {
         verify(shares).findByExpenseItem_Expense_Id(expenseId);
     }
 
-    // ================================= addShareInExpense =================================
     @Nested
     @DisplayName("addShareInExpense(expenseId, itemId, userId, shareValue, sharePercent)")
     class AddShareInExpense {
 
         @Test
-        @DisplayName("happy path (percent): คำนวณจาก percent → scale 2 ทศนิยม → save")
-        void addPercent_ok() {
-            Long expenseId = 30L, itemId = 300L, userId = 3L, groupId = 7L;
-            ExpenseItem it = item(itemId, new BigDecimal("100.00"));
+        @DisplayName("percent + THB currency: THB=1 → original/THB = scale(6)")
+        void addPercent_thb_ok() {
+            Long expenseId = 30L, itemId = 300L, userId = 3L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("100.00"), "THB", exp);
             User u = user(userId, "u@example.com");
 
             when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
             when(users.findById(userId)).thenReturn(Optional.of(u));
-            when(expenses.findGroupIdByExpenseId(expenseId)).thenReturn(groupId);
-            when(members.existsByGroup_IdAndUser_Id(groupId, userId)).thenReturn(true);
+
+            Map<String, BigDecimal> rates = Map.of("THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("THB"), eq(bd6("12.345000")), eq(rates)))
+                    .thenReturn(bd6("12.345000"));
 
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> {
                 ExpenseItemShare s = inv.getArgument(0);
@@ -150,39 +171,92 @@ class ExpenseItemShareServiceTest {
             );
 
             assertThat(created.getId()).isEqualTo(999L);
-            assertThat(created.getExpenseItem()).isSameAs(it);
-            assertThat(created.getParticipant()).isSameAs(u);
-            // 100 * 12.345 / 100 = 12.345 → scale(2, HALF_UP) = 12.35
-            assertThat(created.getShareValue()).isEqualByComparingTo("12.35");
+            assertThat(created.getShareOriginalValue()).isEqualByComparingTo(bd6("12.345000"));
+            assertThat(created.getShareValue()).isEqualByComparingTo(bd6("12.345000"));
             assertThat(created.getSharePercent()).isEqualByComparingTo("12.345");
 
-            verify(items).findByIdAndExpense_Id(itemId, expenseId);
-            verify(users).findById(userId);
-            verify(expenses).findGroupIdByExpenseId(expenseId);
-            verify(members).existsByGroup_IdAndUser_Id(groupId, userId);
-            verify(shares).save(any(ExpenseItemShare.class));
+            verify(fx).getRatesToThb(exp);
+            verify(fx).toThb(eq("THB"), eq(bd6("12.345000")), eq(rates));
         }
 
         @Test
-        @DisplayName("happy path (value): ไม่ส่ง percent → ใช้ shareValue แล้ว scale 2 ทศนิยม")
-        void addValue_ok() {
-            Long expenseId = 31L, itemId = 301L, userId = 4L, groupId = 8L;
-            ExpenseItem it = item(itemId, new BigDecimal("50.00"));
+        @DisplayName("value + USD currency: ใช้เรต USD→THB 36.25 (scale 6)")
+        void addValue_usd_ok() {
+            Long expenseId = 31L, itemId = 301L, userId = 4L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("50.00"), "USD", exp);
             User u = user(userId, "u2@example.com");
 
             when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
             when(users.findById(userId)).thenReturn(Optional.of(u));
-            when(expenses.findGroupIdByExpenseId(expenseId)).thenReturn(groupId);
-            when(members.existsByGroup_IdAndUser_Id(groupId, userId)).thenReturn(true);
+
+            Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"), "THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            // 1.234000 * 36.25 = 44.732500
+            when(fx.toThb(eq("USD"), eq(bd6("1.234000")), eq(rates)))
+                    .thenReturn(bd6("44.732500"));
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare created = service.addShareInExpense(
                     expenseId, itemId, userId, new BigDecimal("1.234"), null
             );
 
-            // scaleMoney(1.234) -> 1.23
-            assertThat(created.getShareValue()).isEqualByComparingTo("1.23");
+            assertThat(created.getShareOriginalValue()).isEqualByComparingTo(bd6("1.234000"));
+            assertThat(created.getShareValue()).isEqualByComparingTo(bd6("44.732500"));
             assertThat(created.getSharePercent()).isNull();
+
+            verify(fx).getRatesToThb(exp);
+            verify(fx).toThb(eq("USD"), eq(bd6("1.234000")), eq(rates));
+        }
+
+        @Test
+        @DisplayName("currency เป็นตัวพิมพ์เล็ก → safeUpper → เรียก toThb ด้วย USD (scale 6)")
+        void addValue_lowercase_currency_uppercased() {
+            Long expenseId = 32L, itemId = 302L, userId = 5L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("10.00"), "usd", exp);
+            User u = user(userId, "u3@example.com");
+
+            when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
+            when(users.findById(userId)).thenReturn(Optional.of(u));
+
+            Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.00"));
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("USD"), eq(bd6("2.000000")), eq(rates)))
+                    .thenReturn(bd6("72.000000"));
+
+            when(shares.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExpenseItemShare created = service.addShareInExpense(expenseId, itemId, userId, new BigDecimal("2.00"), null);
+
+            assertThat(created.getShareOriginalValue()).isEqualByComparingTo(bd6("2.000000"));
+            assertThat(created.getShareValue()).isEqualByComparingTo(bd6("72.000000"));
+            verify(fx).toThb(eq("USD"), eq(bd6("2.000000")), eq(rates));
+        }
+
+        @Test
+        @DisplayName("item ไม่มี currency → default THB (scale 6)")
+        void addValue_null_currency_defaults_thb() {
+            Long expenseId = 33L, itemId = 303L, userId = 6L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("10.00"), null, exp);
+            User u = user(userId, "u4@example.com");
+
+            when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(it));
+            when(users.findById(userId)).thenReturn(Optional.of(u));
+
+            Map<String, BigDecimal> rates = Map.of("THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("THB"), eq(bd6("9.990000")), eq(rates)))
+                    .thenReturn(bd6("9.990000"));
+
+            when(shares.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExpenseItemShare created = service.addShareInExpense(expenseId, itemId, userId, new BigDecimal("9.99"), null);
+
+            assertThat(created.getShareValue()).isEqualByComparingTo(bd6("9.990000"));
+            verify(fx).toThb(eq("THB"), eq(bd6("9.990000")), eq(rates));
         }
 
         @Test
@@ -198,7 +272,7 @@ class ExpenseItemShareServiceTest {
             assertThat(ex.getReason()).isEqualTo("Item not found in this expense");
 
             verify(items).findByIdAndExpense_Id(999L, 30L);
-            verifyNoInteractions(users, expenses, members, shares);
+            verifyNoInteractions(users, fx, shares);
         }
 
         @Test
@@ -216,111 +290,104 @@ class ExpenseItemShareServiceTest {
             assertThat(ex.getReason()).isEqualTo("Participant user not found");
 
             verify(users).findById(userId);
-            verifyNoInteractions(expenses, members, shares);
-        }
-
-        @Test
-        @DisplayName("expense ไม่ถูกต้อง (groupId=null) → 400 BAD_REQUEST")
-        void invalidExpense_400() {
-            Long expenseId = 30L, itemId = 300L, userId = 3L;
-            when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(item(itemId, BigDecimal.ONE)));
-            when(users.findById(userId)).thenReturn(Optional.of(user(userId, "u@x")));
-            when(expenses.findGroupIdByExpenseId(expenseId)).thenReturn(null);
-
-            ResponseStatusException ex = catchThrowableOfType(
-                    () -> service.addShareInExpense(expenseId, itemId, userId, BigDecimal.ONE, null),
-                    ResponseStatusException.class
-            );
-            assertThat(ex.getStatusCode().value()).isEqualTo(HttpStatus.BAD_REQUEST.value());
-            assertThat(ex.getReason()).isEqualTo("Invalid expense");
-
-            verify(expenses).findGroupIdByExpenseId(expenseId);
-            verifyNoInteractions(members, shares);
-        }
-
-        @Test
-        @DisplayName("ผู้เข้าร่วมไม่ใช่สมาชิก group → 400 BAD_REQUEST")
-        void notGroupMember_400() {
-            Long expenseId = 30L, itemId = 300L, userId = 3L, groupId = 7L;
-            when(items.findByIdAndExpense_Id(itemId, expenseId)).thenReturn(Optional.of(item(itemId, BigDecimal.ONE)));
-            when(users.findById(userId)).thenReturn(Optional.of(user(userId, "u@x")));
-            when(expenses.findGroupIdByExpenseId(expenseId)).thenReturn(groupId);
-            when(members.existsByGroup_IdAndUser_Id(groupId, userId)).thenReturn(false);
-
-            ResponseStatusException ex = catchThrowableOfType(
-                    () -> service.addShareInExpense(expenseId, itemId, userId, BigDecimal.ONE, null),
-                    ResponseStatusException.class
-            );
-            assertThat(ex.getStatusCode().value()).isEqualTo(HttpStatus.BAD_REQUEST.value());
-            assertThat(ex.getReason()).isEqualTo("Participant is not a member of this group");
-
-            verify(members).existsByGroup_IdAndUser_Id(groupId, userId);
-            verifyNoInteractions(shares);
+            verifyNoInteractions(fx, shares);
         }
     }
 
-    // ================================= updateShareInExpense =================================
     @Nested
     @DisplayName("updateShareInExpense(expenseId, itemId, shareId, shareValue, sharePercent)")
     class UpdateShareInExpense {
 
         @Test
-        @DisplayName("ส่ง percent → คำนวณจาก item.amount → อัปเดต value และ percent → save")
-        void updateWithPercent_ok() {
+        @DisplayName("percent + JPY → ใช้เรต JPY→THB 0.25 (scale 6)")
+        void updateWithPercent_jpy_ok() {
             Long expenseId = 40L, itemId = 400L, shareId = 4L;
-            ExpenseItem it = item(itemId, new BigDecimal("200.00"));
-            ExpenseItemShare existing = share(shareId, it, user(9L, "p@x"), new BigDecimal("0"), null);
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("2000.00"), "JPY", exp);
+            ExpenseItemShare existing = share(shareId, it, user(9L, "p@x"), bd6("0.000000"), null);
 
             when(shares.findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId))
                     .thenReturn(Optional.of(existing));
+
+            Map<String, BigDecimal> rates = Map.of("JPY", new BigDecimal("0.25"));
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+
+            BigDecimal original = bd6("666.660000"); // 2000 * 33.333% = 666.66 -> scale(6)
+            when(fx.toThb(eq("JPY"), eq(original), eq(rates)))
+                    .thenReturn(bd6("166.665000"));
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare updated = service.updateShareInExpense(
                     expenseId, itemId, shareId, null, new BigDecimal("33.333")
             );
 
-            // 200 * 33.333% = 66.666 → scale 2 = 66.67
-            assertThat(updated.getShareValue()).isEqualByComparingTo("66.67");
+            assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(bd6("666.660000"));
+            assertThat(updated.getShareValue()).isEqualByComparingTo(bd6("166.665000"));
             assertThat(updated.getSharePercent()).isEqualByComparingTo("33.333");
 
+            verify(fx).toThb(eq("JPY"), eq(original), eq(rates));
             verify(shares).save(existing);
         }
 
         @Test
-        @DisplayName("ส่ง value อย่างเดียว → scale 2 → save")
-        void updateWithValue_ok() {
-            Long expenseId = 40L, itemId = 400L, shareId = 5L;
-            ExpenseItemShare existing = share(shareId, item(itemId, new BigDecimal("50.00")), user(9L, "p@x"), null, null);
+        @DisplayName("value + EUR → เรต 40.00 (scale 6)")
+        void updateWithValue_eur_ok() {
+            Long expenseId = 41L, itemId = 401L, shareId = 5L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("50.00"), "EUR", exp);
+            ExpenseItemShare existing = share(shareId, it, user(9L, "p@x"), null, null);
 
             when(shares.findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId))
                     .thenReturn(Optional.of(existing));
+
+            Map<String, BigDecimal> rates = Map.of("EUR", new BigDecimal("40.00"));
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+
+            when(fx.toThb(eq("EUR"), eq(bd6("1.999000")), eq(rates)))
+                    .thenReturn(bd6("79.960000")); // 1.999000 * 40
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare updated = service.updateShareInExpense(
                     expenseId, itemId, shareId, new BigDecimal("1.999"), null
             );
 
-            assertThat(updated.getShareValue()).isEqualByComparingTo("2.00");
+            assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(bd6("1.999000"));
+            assertThat(updated.getShareValue()).isEqualByComparingTo(bd6("79.960000"));
             assertThat(updated.getSharePercent()).isNull();
             verify(shares).save(existing);
         }
 
         @Test
-        @DisplayName("ไม่ส่งอะไรเลย → ไม่เปลี่ยนค่า → save (ยังคงค่าเดิม)")
+        @DisplayName("ไม่ส่งอะไรเลย → ค่าเดิม แต่คำนวณ THB ใหม่ (scale 6)")
         void updateNoFields_ok() {
-            Long expenseId = 40L, itemId = 400L, shareId = 6L;
-            ExpenseItemShare existing = share(shareId, item(itemId, new BigDecimal("10.00")),
-                    user(9L, "p@x"), new BigDecimal("3.00"), new BigDecimal("30"));
+            Long expenseId = 42L, itemId = 402L, shareId = 6L;
+            Expense exp = makeExpense(expenseId);
+            ExpenseItem it = item(itemId, new BigDecimal("10.00"), "THB", exp);
+            ExpenseItemShare existing = new ExpenseItemShare();
+            existing.setId(shareId);
+            existing.setExpenseItem(it);
+            existing.setParticipant(user(9L, "p@x"));
+            existing.setShareOriginalValue(bd6("3.000000"));
+            existing.setShareValue(bd6("3.000000"));
+            existing.setSharePercent(new BigDecimal("30"));
 
             when(shares.findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(shareId, itemId, expenseId))
                     .thenReturn(Optional.of(existing));
+
+            Map<String, BigDecimal> rates = Map.of("THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("THB"), eq(bd6("3.000000")), eq(rates)))
+                    .thenReturn(bd6("3.000000"));
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare updated = service.updateShareInExpense(expenseId, itemId, shareId, null, null);
 
-            assertThat(updated.getShareValue()).isEqualByComparingTo("3.00");
+            assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(bd6("3.000000"));
             assertThat(updated.getSharePercent()).isEqualByComparingTo("30");
-
+            assertThat(updated.getShareValue()).isEqualByComparingTo(bd6("3.000000"));
             verify(shares).save(existing);
         }
 
@@ -342,7 +409,6 @@ class ExpenseItemShareServiceTest {
         }
     }
 
-    // ================================= deleteShareInExpense =================================
     @Nested
     @DisplayName("deleteShareInExpense(expenseId, itemId, shareId)")
     class DeleteShareInExpense {
@@ -377,13 +443,12 @@ class ExpenseItemShareServiceTest {
         }
     }
 
-    // ================================= listByItem (Deprecated) =================================
     @Test
     @DisplayName("[Deprecated] listByItem(itemId): คืน shares ของ item")
     void deprecated_listByItem() {
         Long itemId = 1000L;
         when(shares.findByExpenseItem_Id(itemId)).thenReturn(List.of(
-                share(1L, item(itemId, BigDecimal.TEN), user(1L, "x@x"), BigDecimal.ONE, null)
+                share(1L, item(itemId, BigDecimal.TEN), user(1L, "x@x"), bd6("1.000000"), null)
         ));
 
         List<ExpenseItemShare> result = service.listByItem(itemId);
@@ -391,39 +456,54 @@ class ExpenseItemShareServiceTest {
         verify(shares).findByExpenseItem_Id(itemId);
     }
 
-    // ================================= addShare (Deprecated) =================================
     @Nested
     @DisplayName("[Deprecated] addShare(itemId, userId, value, percent)")
     class DeprecatedAddShare {
 
         @Test
-        @DisplayName("item+user พบ (percent) → คำนวณจาก amount → save")
+        @DisplayName("percent + THB → ค่า original/THB scale(6)")
         void addPercent_ok() {
             Long itemId = 2000L, userId = 7L;
-            ExpenseItem it = item(itemId, new BigDecimal("10.00"));
+            Expense exp = makeExpense(7777L);
+            ExpenseItem it = item(itemId, new BigDecimal("10.00"), "THB", exp);
             User u = user(userId, "y@y");
 
             when(items.findById(itemId)).thenReturn(Optional.of(it));
             when(users.findById(userId)).thenReturn(Optional.of(u));
+
+            Map<String, BigDecimal> rates = Map.of("THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("THB"), eq(bd6("1.250000")), eq(rates)))
+                    .thenReturn(bd6("1.250000"));
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare s = service.addShare(itemId, userId, null, new BigDecimal("12.5"));
 
-            // 10 * 12.5% = 1.25 -> scale 2 = 1.25
-            assertThat(s.getShareValue()).isEqualByComparingTo("1.25");
+            assertThat(s.getShareOriginalValue()).isEqualByComparingTo(bd6("1.250000"));
+            assertThat(s.getShareValue()).isEqualByComparingTo(bd6("1.250000"));
             assertThat(s.getSharePercent()).isEqualByComparingTo("12.5");
         }
 
         @Test
-        @DisplayName("item+user พบ (value) → scale 2 → save")
+        @DisplayName("value + USD → ใช้เรต 36.25 (scale 6)")
         void addValue_ok() {
             Long itemId = 2001L, userId = 8L;
-            when(items.findById(itemId)).thenReturn(Optional.of(item(itemId, new BigDecimal("9.99"))));
+            Expense exp = makeExpense(8888L);
+            ExpenseItem it = item(itemId, new BigDecimal("9.99"), "USD", exp);
+            when(items.findById(itemId)).thenReturn(Optional.of(it));
             when(users.findById(userId)).thenReturn(Optional.of(user(userId, "z@z")));
+
+            Map<String, BigDecimal> rates = Map.of("USD", new BigDecimal("36.25"));
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("USD"), eq(bd6("2.999000")), eq(rates)))
+                    .thenReturn(bd6("108.713750")); // 2.999000*36.25
+
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare s = service.addShare(itemId, userId, new BigDecimal("2.999"), null);
-            assertThat(s.getShareValue()).isEqualByComparingTo("3.00");
+            assertThat(s.getShareOriginalValue()).isEqualByComparingTo(bd6("2.999000"));
+            assertThat(s.getShareValue()).isEqualByComparingTo(bd6("108.713750"));
             assertThat(s.getSharePercent()).isNull();
         }
 
@@ -443,7 +523,9 @@ class ExpenseItemShareServiceTest {
         @Test
         @DisplayName("user ไม่พบ → 404")
         void userNotFound_404() {
-            when(items.findById(1L)).thenReturn(Optional.of(item(1L, BigDecimal.ONE)));
+            Expense exp = makeExpense(1L);
+            ExpenseItem it = item(1L, BigDecimal.ONE, "THB", exp);
+            when(items.findById(1L)).thenReturn(Optional.of(it));
             when(users.findById(999L)).thenReturn(Optional.empty());
 
             ResponseStatusException ex = catchThrowableOfType(
@@ -455,38 +537,50 @@ class ExpenseItemShareServiceTest {
         }
     }
 
-    // ================================= updateShare (Deprecated) =================================
     @Nested
     @DisplayName("[Deprecated] updateShare(shareId, value, percent)")
     class DeprecatedUpdateShare {
 
         @Test
-        @DisplayName("ส่ง percent → คำนวณจาก item.amount → save")
+        @DisplayName("percent + THB → คำนวณใหม่และแปลง THB=1 (scale 6)")
         void updatePercent_ok() {
             Long shareId = 3000L;
-            ExpenseItem it = item(77L, new BigDecimal("100.00"));
-            ExpenseItemShare s = share(shareId, it, user(9L, "p@x"), new BigDecimal("0.00"), null);
+            Expense exp = makeExpense(1L);
+            ExpenseItem it = item(77L, new BigDecimal("100.00"), "THB", exp);
+            ExpenseItemShare s = share(shareId, it, user(9L, "p@x"), bd6("0.000000"), null);
 
             when(shares.findById(shareId)).thenReturn(Optional.of(s));
+            Map<String, BigDecimal> rates = Map.of("THB", BigDecimal.ONE);
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("THB"), eq(bd6("33.333000")), eq(rates)))
+                    .thenReturn(bd6("33.333000"));
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare updated = service.updateShare(shareId, null, new BigDecimal("33.333"));
 
-            assertThat(updated.getShareValue()).isEqualByComparingTo("33.33"); // 100 * 33.333% = 33.333 -> 33.33
+            assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(bd6("33.333000"));
+            assertThat(updated.getShareValue()).isEqualByComparingTo(bd6("33.333000"));
             assertThat(updated.getSharePercent()).isEqualByComparingTo("33.333");
         }
 
         @Test
-        @DisplayName("ส่ง value → scale 2 → save")
+        @DisplayName("value + JPY → ใช้เรต 0.25 (scale 6)")
         void updateValue_ok() {
             Long shareId = 3001L;
-            ExpenseItemShare s = share(shareId, item(70L, new BigDecimal("50.00")), user(10L, "q@x"), new BigDecimal("1.00"), null);
+            Expense exp = makeExpense(2L);
+            ExpenseItem it = item(70L, new BigDecimal("50.00"), "JPY", exp);
+            ExpenseItemShare s = share(shareId, it, user(10L, "q@x"), bd6("1.000000"), null);
 
             when(shares.findById(shareId)).thenReturn(Optional.of(s));
+            Map<String, BigDecimal> rates = Map.of("JPY", new BigDecimal("0.25"));
+            when(fx.getRatesToThb(exp)).thenReturn(rates);
+            when(fx.toThb(eq("JPY"), eq(bd6("2.345000")), eq(rates)))
+                    .thenReturn(bd6("0.586250"));
             when(shares.save(any(ExpenseItemShare.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ExpenseItemShare updated = service.updateShare(shareId, new BigDecimal("2.345"), null);
-            assertThat(updated.getShareValue()).isEqualByComparingTo("2.35");
+            assertThat(updated.getShareOriginalValue()).isEqualByComparingTo(bd6("2.345000"));
+            assertThat(updated.getShareValue()).isEqualByComparingTo(bd6("0.586250"));
             assertThat(updated.getSharePercent()).isNull();
         }
 
@@ -504,7 +598,6 @@ class ExpenseItemShareServiceTest {
         }
     }
 
-    // ================================= listByExpenseAndParticipant =================================
     @Nested
     @DisplayName("listByExpenseAndParticipant(expenseId, userId)")
     class ListByExpenseAndParticipant {
@@ -515,7 +608,7 @@ class ExpenseItemShareServiceTest {
             Long expenseId = 4000L, userId = 40L;
             when(shares.findByExpenseItem_Expense_IdAndParticipant_Id(expenseId, userId))
                     .thenReturn(List.of(
-                            share(1L, item(10L, BigDecimal.TEN), user(userId, "u@x"), new BigDecimal("5.00"), null)
+                            share(1L, item(10L, BigDecimal.TEN), user(userId, "u@x"), bd6("5.000000"), null)
                     ));
 
             List<ExpenseItemShare> result = service.listByExpenseAndParticipant(expenseId, userId);

@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(findstr:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(Select-String -Pattern \"Events:\" -Context 0,20)",
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl rollout:*)",
+      "Bash(kubectl exec:*)",
+      "Bash(minikube docker-env:*)",
+      "Bash(.deploy-minikube.ps1)",
+      "Bash(pwsh -File deploy-minikube.ps1)",
+      "Bash(minikube ssh:*)",
+      "Bash(Select-String -Pattern \"Image:|Replicas:|Pod Template:\" -Context 0,2)",
+      "Bash(Invoke-Expression)",
+      "Bash(docker images:*)",
+      "Bash(ForEach-Object { $_ -split ' ' })",
+      "Bash(docker build:*)",
+      "Bash(docker push:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(minikube tunnel)",
+      "Bash(minikube ip:*)",
+      "Bash(curl:*)",
+      "Bash(minikube service:*)",
+      "Bash(kubectl set image:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

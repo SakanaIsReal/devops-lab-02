@@ -1,6 +1,10 @@
 #!/bin/bash
 
+# Default image tag to 'latest', but allow override via environment variable
+IMAGE_TAG=${IMAGE_TAG:-latest}
+
 echo -e "\033[32mStarting Minikube deployment process...\033[0m"
+echo -e "\033[36mUsing image tag: $IMAGE_TAG\033[0m"
 
 # Start Minikube if not running
 echo -e "\033[33mStarting Minikube...\033[0m"
@@ -15,10 +19,16 @@ fi
 echo -e "\033[33mSetting docker environment to Minikube...\033[0m"
 eval $(minikube docker-env)
 
-# Build Docker images
-echo -e "\033[33mBuilding Docker images...\033[0m"
-docker build -t backend:latest ./backend
-docker build -t frontend:latest ./frontend
+# Build Docker images with specified tag (default: latest)
+echo -e "\033[33mBuilding Docker images with tag: $IMAGE_TAG...\033[0m"
+docker build -t "sakanaisreal/smartsplit-backend:$IMAGE_TAG" ./backend
+docker build -t "sakanaisreal/smartsplit-frontend:$IMAGE_TAG" ./frontend
+
+# Tag as :latest as well for local development convenience
+if [ "$IMAGE_TAG" != "latest" ]; then
+    docker tag "sakanaisreal/smartsplit-backend:$IMAGE_TAG" sakanaisreal/smartsplit-backend:latest
+    docker tag "sakanaisreal/smartsplit-frontend:$IMAGE_TAG" sakanaisreal/smartsplit-frontend:latest
+fi
 
 # Create namespace
 echo -e "\033[33mCreating namespace...\033[0m"

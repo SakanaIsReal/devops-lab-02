@@ -1,7 +1,7 @@
 import { ExclamationTriangleIcon, CheckCircleIcon } from "@heroicons/react/24/solid";
 import { useState, useEffect } from "react";
 import { Transaction } from "../types";
-import { getTransactions, getBalanceSummary } from "../utils/api";
+import { getBalanceSummary } from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -13,14 +13,7 @@ export default function BalanceSummary() {
   const { user } = useAuth();
 
   useEffect(() => {
-    const fetchTransactions = async () => {
-      try {
-        const data = await getTransactions();
-        setTransactions(data);
-      } catch (error) {
-        console.error("Failed to fetch transactions", error);
-      }
-    };
+
 
     const fetchBalanceSummary = async () => {
       try {
@@ -31,7 +24,6 @@ export default function BalanceSummary() {
       }
     };
 
-    fetchTransactions();
     fetchBalanceSummary();
   }, []);
 

@@ -30,10 +30,20 @@ const TransactionList: React.FC<TransactionListProps> = ({ groupId }) => {
   }, [groupId]);
 
   const filteredTransactions = transactions.filter(transaction => {
-    if (filter === 'all') return true;
-    if (filter === 'pending') return transaction.status === 'OPEN';
-    if (filter === 'completed') return transaction.status === 'SETTLED';
-    return true;
+    if (filter === 'all') {
+      return true;
+    }
+    if (!transaction || typeof transaction.status !== 'string') {
+      return false;
+    }
+    const status = transaction.status.toLowerCase();
+    if (filter === 'pending') {
+      return status === 'open';
+    }
+    if (filter === 'completed') {
+      return status === 'settled' || status === 'completed';
+    }
+    return false;
   });
 
   if (loading) {

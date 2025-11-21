@@ -11,8 +11,13 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import com.smartsplit.smartsplitback.repository.UserRepository;
+
+import com.smartsplit.smartsplitback.model.User;
+import com.smartsplit.smartsplitback.model.Role;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -22,12 +27,13 @@ import static org.mockito.Mockito.*;
 class SecurityFacadeTest {
 
     @Mock JwtService jwtService;
+    @Mock UserRepository userRepo;
 
     SecurityFacade facade;
 
     @BeforeEach
     void setUp() {
-        facade = new SecurityFacade(jwtService);
+        facade = new SecurityFacade(jwtService, userRepo);
         SecurityContextHolder.clearContext();
         RequestContextHolder.resetRequestAttributes();
     }
@@ -48,6 +54,16 @@ class SecurityFacadeTest {
 
     private void setRequest(MockHttpServletRequest req) {
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(req));
+    }
+
+    private static User userWithRole(long id, Role role) {
+        User u = new User();
+        u.setId(id);
+        u.setEmail("u" + id + "@example.com");
+        u.setUserName("U" + id);
+        u.setPasswordHash("{noop}x");
+        u.setRole(role);
+        return u;
     }
 
     // ---------- currentUserId ----------
@@ -98,7 +114,6 @@ class SecurityFacadeTest {
         @Test
         @DisplayName("ไม่มี auth ใน context → คืน null")
         void noAuth_returnsNull() {
-            // no auth, no request
             Long uid = facade.currentUserId();
             assertThat(uid).isNull();
             verifyNoInteractions(jwtService);
@@ -108,7 +123,6 @@ class SecurityFacadeTest {
         @DisplayName("principal ไม่ใช่ตัวเลข + ไม่มี Bearer header → คืน null")
         void nonNumeric_noBearer_returnsNull() {
             setAuth("bob@example.com");
-            // ไม่ตั้ง RequestContextHolder
             Long uid = facade.currentUserId();
             assertThat(uid).isNull();
             verifyNoInteractions(jwtService);
@@ -136,27 +150,35 @@ class SecurityFacadeTest {
     class Roles {
 
         @Test
-        @DisplayName("มี ROLE_USER → hasRole(\"ROLE_USER\") = true, ROLE_ADMIN = false")
+        @DisplayName("มี ROLE_USER (ใน DB) → hasRole(\"ROLE_USER\") = true, ROLE_ADMIN = false")
         void hasRole_user() {
             setAuth("123", "ROLE_USER");
+            when(userRepo.findById(123L)).thenReturn(Optional.of(userWithRole(123L, Role.USER)));
+
             assertThat(facade.hasRole("ROLE_USER")).isTrue();
             assertThat(facade.hasRole("ROLE_ADMIN")).isFalse();
             assertThat(facade.isAdmin()).isFalse();
+            verify(userRepo, times(3)).findById(123L);
+            verifyNoMoreInteractions(userRepo);
         }
 
         @Test
-        @DisplayName("มี ROLE_ADMIN → isAdmin() = true และ hasRole(\"ROLE_ADMIN\") = true")
+        @DisplayName("มี ROLE_ADMIN (ใน DB) → isAdmin() = true และ hasRole(\"ROLE_ADMIN\") = true")
         void hasRole_admin() {
             setAuth("1", "ROLE_ADMIN");
+            when(userRepo.findById(1L)).thenReturn(Optional.of(userWithRole(1L, Role.ADMIN)));
+
             assertThat(facade.isAdmin()).isTrue();
             assertThat(facade.hasRole("ROLE_ADMIN")).isTrue();
+            verify(userRepo, times(2)).findById(1L);
+            verifyNoMoreInteractions(userRepo);
         }
-
         @Test
         @DisplayName("ไม่มี auth → hasRole/isAdmin = false")
         void noAuth_rolesFalse() {
             assertThat(facade.hasRole("ROLE_USER")).isFalse();
             assertThat(facade.isAdmin()).isFalse();
+            verifyNoInteractions(userRepo);
         }
     }
 }

@@ -30,3 +30,10 @@ yarn-error.log*
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Cypress artifacts
+cypress/downloads/
+cypress/screenshots/
+cypress/videos/
+
+/actions_log

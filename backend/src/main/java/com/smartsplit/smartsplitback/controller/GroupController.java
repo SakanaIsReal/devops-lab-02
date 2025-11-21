@@ -228,7 +228,20 @@ public class GroupController {
         groups.delete(id);
     }
 
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/search")
+    public List<GroupDto> searchMyGroups(@RequestParam("q") String q){
+        Long me = sec.currentUserId();
+        if (me == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
 
+        String query = (q == null) ? "" : q.trim();
+        if (query.isEmpty()) return List.of();
+
+        return groups.searchMyGroups(me, query)
+                .stream()
+                .map(this::toDto)
+                .toList();
+    }
     private GroupDto toDto(Group g){
         long memberCount = members.countMembers(g.getId());
         return new GroupDto(

@@ -10,6 +10,7 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.12.2",
+    "browser-image-compression": "^2.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.2",
@@ -52,8 +53,11 @@
     "@types/react-dom": "^19.1.9",
     "@types/react-router-dom": "^5.3.3",
     "autoprefixer": "^10.4.21",
+    "baseline-browser-mapping": "^2.8.30",
     "postcss": "^8.5.6",
     "react-scripts": "^5.0.1",
-    "tailwindcss": "^3.4.17"
-  }
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
+  },
+  "proxy": "http://localhost:16048"
 }

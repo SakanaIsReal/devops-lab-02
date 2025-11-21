@@ -127,9 +127,21 @@ public class Perms {
 
     public boolean canViewExpense(Long expenseId) {
         if (isAdmin()) return true;
+
+        Long me = sec.currentUserId();
+        if (me == null) return false;
+
         Long gid = expenses.findGroupIdByExpenseId(expenseId);
-        return gid != null && isGroupMember(gid);
+
+        // ถ้าเป็นสมาชิกกลุ่มของ expense ดูได้
+        if (gid != null && isGroupMember(gid)) {
+            return true;
+        }
+
+        // ไม่ได้อยู่ในกลุ่ม → อนุโลมให้ดูได้ถ้าเป็นผู้มีส่วนร่วมใน item share ของ expense นี้
+        return shares.existsByExpenseItem_Expense_IdAndParticipant_Id(expenseId, me);
     }
+
 
     public boolean canManageExpense(Long expenseId) {
         if (isAdmin()) return true;
@@ -188,12 +200,24 @@ public class Perms {
     }
 
     public boolean canViewExpenseItem(Long expenseId, Long itemId) {
+
         if (!itemBelongsToExpense(expenseId, itemId)) return false;
+
+
         if (isAdmin()) return true;
+
+        Long me = sec.currentUserId();
+        if (me == null) return false;
+
+
         Long groupId = expenses.findGroupIdByExpenseId(expenseId);
-        if (groupId == null) return false;
-        return isGroupMember(groupId);
+        if (groupId != null && isGroupMember(groupId)) {
+            return true;
+        }
+
+        return shares.existsByExpenseItem_Expense_IdAndParticipant_Id(expenseId, me);
     }
+
 
     public boolean canManageExpenseItem(Long expenseId, Long itemId) {
         if (!itemBelongsToExpense(expenseId, itemId)) return false;

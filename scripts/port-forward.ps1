@@ -23,6 +23,7 @@ function Test-KubernetesServices {
     $services = @(
         @{Name = "frontend"; Namespace = "smartsplit"}
         @{Name = "backend"; Namespace = "smartsplit"}
+        @{Name = "mysql"; Namespace = "smartsplit"}
     )
     
     foreach ($svc in $services) {
@@ -41,7 +42,7 @@ function Test-KubernetesServices {
 }
 
 # Check if ports are already in use
-$portsToCheck = @(3000, 8081)
+$portsToCheck = @(3003, 16048, 8082)
 $portsInUse = $false
 
 foreach ($port in $portsToCheck) {

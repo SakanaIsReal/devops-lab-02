@@ -21,6 +21,12 @@ public interface ExpenseItemShareRepository extends JpaRepository<ExpenseItemSha
     List<ExpenseItemShare> fetchForExpenseAndUser(@Param("expenseId") Long expenseId,
                                                   @Param("userId") Long userId);
 
+    @Query("""
+      select s from ExpenseItemShare s
+      where s.expenseItem.expense.id = :expenseId
+    """)
+    List<ExpenseItemShare> findByExpenseId(@Param("expenseId") Long expenseId);
+
     // ดึง shares ทั้ง expense (พร้อม item)
     @Query("""
            select s from ExpenseItemShare s
@@ -42,5 +48,11 @@ public interface ExpenseItemShareRepository extends JpaRepository<ExpenseItemSha
 
     Optional<ExpenseItemShare> findByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(Long shareId, Long itemId, Long expenseId);
     boolean existsByIdAndExpenseItem_IdAndExpenseItem_Expense_Id(Long shareId, Long itemId, Long expenseId);
+    @Query("""
+           select distinct s.expenseItem.expense.id
+           from ExpenseItemShare s
+           where s.participant.id = :uid
+           """)
+    List<Long> findDistinctExpenseIdsByParticipantId(@Param("uid") Long uid);
 
 }

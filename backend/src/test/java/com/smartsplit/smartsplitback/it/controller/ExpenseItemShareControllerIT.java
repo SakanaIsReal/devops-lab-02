@@ -7,33 +7,42 @@ import com.smartsplit.smartsplitback.repository.*;
 import com.smartsplit.smartsplitback.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import java.time.LocalDateTime;
+
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+import static java.math.RoundingMode.HALF_UP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-
-@DisplayName("ExpenseItemShareController IT (end-to-end to DB)")
 class ExpenseItemShareControllerIT extends BaseIntegrationTest {
 
     private static final String BASE = "/api/expenses/{expenseId}/items/{itemId}/shares";
+
+    // === New: enforce 6-decimal expectation everywhere ===
+    private static final int SCALE = 6;
+    private static final RoundingMode RM = HALF_UP;
+    private static BigDecimal bd(String s) {
+        return new BigDecimal(s).setScale(SCALE, RM);
+    }
+    private static BigDecimal mulThb(BigDecimal original, String rate) {
+        return original.multiply(new BigDecimal(rate)).setScale(SCALE, RM);
+    }
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
     @Autowired JwtService jwtService;
 
-    
     @Autowired GroupRepository groupRepo;
     @Autowired ExpenseRepository expenseRepo;
     @Autowired ExpenseItemRepository itemRepo;
@@ -41,15 +50,16 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
     @Autowired GroupMemberRepository memberRepo;
     @Autowired UserRepository userRepo;
 
-
     long adminId;
     long meId;
     long otherId;
+    long outsiderId;
 
     long groupId;
     long expenseId;
-    long itemId;
+    long thbItemId;
 
+    String ratesJson = "{\"THB\":1,\"USD\":36.25,\"JPY\":0.25,\"EUR\":39.50}";
 
     private String jwtFor(long uid, int roleCode) {
         Map<String, Object> claims = new HashMap<>();
@@ -66,7 +76,6 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
-
         shareRepo.deleteAll();
         itemRepo.deleteAll();
         expenseRepo.deleteAll();
@@ -74,7 +83,6 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
         groupRepo.deleteAll();
         userRepo.deleteAll();
 
-        // ----- users -----
         User admin = new User();
         admin.setEmail("admin@example.com");
         admin.setUserName("Admin");
@@ -96,215 +104,401 @@ class ExpenseItemShareControllerIT extends BaseIntegrationTest {
         other.setRole(Role.USER);
         otherId = userRepo.save(other).getId();
 
-        // ----- group -----
+        User outsider = new User();
+        outsider.setEmail("outsider@example.com");
+        outsider.setUserName("Outsider");
+        outsider.setPasswordHash("{noop}x");
+        outsider.setRole(Role.USER);
+        outsiderId = userRepo.save(outsider).getId();
+
         Group g = new Group();
         g.setName("IT-Group");
         g.setOwner(userRepo.getReferenceById(meId));
         groupId = groupRepo.save(g).getId();
 
-        // ----- expense -----
-        Expense exp = new Expense();
-        exp.setGroup(g);
-
-        exp.setTitle("IT-Expense");
-        exp.setStatus(ExpenseStatus.OPEN);
-        exp.setType(ExpenseType.CUSTOM);
-        exp.setCreatedAt(LocalDateTime.now());
-        exp.setPayer(me);
-        expenseId = expenseRepo.save(exp).getId();
-
-
-        ExpenseItem it = new ExpenseItem();
-        it.setExpense(exp);
-        it.setName("Item-1");
-        it.setAmount(new BigDecimal("100.00"));
-        itemId = itemRepo.save(it).getId();
-
-
         GroupMember m1 = new GroupMember();
         m1.setGroup(g);
-        m1.setUser(me);
+        m1.setUser(userRepo.getReferenceById(meId));
         memberRepo.save(m1);
 
         GroupMember m2 = new GroupMember();
         m2.setGroup(g);
-        m2.setUser(other);
+        m2.setUser(userRepo.getReferenceById(otherId));
         memberRepo.save(m2);
+
+        Expense exp = new Expense();
+        exp.setGroup(g);
+        exp.setTitle("IT-Expense");
+        exp.setStatus(ExpenseStatus.OPEN);
+        exp.setType(ExpenseType.CUSTOM);
+        exp.setCreatedAt(LocalDateTime.now());
+        exp.setPayer(userRepo.getReferenceById(meId));
+        exp.setExchangeRatesJson(ratesJson);
+        expenseId = expenseRepo.save(exp).getId();
+
+        ExpenseItem itTHB = new ExpenseItem();
+        itTHB.setExpense(exp);
+        itTHB.setName("Item THB");
+        itTHB.setAmount(new BigDecimal("100.00"));
+        itTHB.setCurrency("THB");
+        thbItemId = itemRepo.save(itTHB).getId();
     }
 
-    // -------------------- READ --------------------
-
-    @Test
-    @DisplayName("GET /shares → 200 (ลิสต์อาจว่าง) เมื่อมีสิทธิ์ (ใช้ ADMIN)")
-    void list_ok_initially_empty() throws Exception {
-        mvc.perform(get(BASE, expenseId, itemId).with(asAdmin(adminId)))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    private long newItem(String name, String currency, String amount) {
+        Expense exp = expenseRepo.findById(expenseId).orElseThrow();
+        ExpenseItem it = new ExpenseItem();
+        it.setExpense(exp);
+        it.setName(name);
+        it.setAmount(new BigDecimal(amount));
+        it.setCurrency(currency);
+        return itemRepo.save(it).getId();
     }
 
-    // -------------------- ADD --------------------
-
-    @Test
-    @DisplayName("POST /shares → 400 เมื่อไม่ส่ง shareValue และ sharePercent")
-    void add_bad_request_missing_both() throws Exception {
-        mvc.perform(post(BASE, expenseId, itemId)
-                        .with(asAdmin(adminId))
-                        .param("participantUserId", String.valueOf(otherId)))
-                .andExpect(status().isBadRequest());
+    private Expense newExpenseWithGroup(Group g, User payer, String title) {
+        Expense exp = new Expense();
+        exp.setGroup(g);
+        exp.setTitle(title);
+        exp.setStatus(ExpenseStatus.OPEN);
+        exp.setType(ExpenseType.CUSTOM);
+        exp.setCreatedAt(LocalDateTime.now());
+        exp.setPayer(payer);
+        exp.setExchangeRatesJson(ratesJson);
+        return expenseRepo.save(exp);
     }
 
-    @Test
-    @DisplayName("POST /shares (shareValue) → 200 และถูกบันทึกจริง")
-    void add_ok_with_value_persists() throws Exception {
-        mvc.perform(post(BASE, expenseId, itemId)
-                        .with(asAdmin(adminId))
-                        .param("participantUserId", String.valueOf(otherId))
-                        .param("shareValue", "15.50"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
-
-        var list = shareRepo.findByExpenseItem_Id(itemId);
-        assertThat(list).hasSize(1);
-        assertThat(list.get(0).getParticipant().getId()).isEqualTo(otherId);
-        assertThat(list.get(0).getShareValue()).isEqualByComparingTo(new BigDecimal("15.50"));
-        assertThat(list.get(0).getSharePercent()).isNull(); // บันทึก value ตรง ๆ
-    }
-
-    @Test
-    @DisplayName("POST /shares (sharePercent=10) → 200 และ value=10% ของ 100 = 10.00")
-    void add_ok_with_percent_persists() throws Exception {
-        mvc.perform(post(BASE, expenseId, itemId)
-                        .with(asAdmin(adminId))
-                        .param("participantUserId", String.valueOf(otherId))
-                        .param("sharePercent", "10"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
-
-        var list = shareRepo.findByExpenseItem_Id(itemId);
-        assertThat(list).hasSize(1);
-        assertThat(list.get(0).getShareValue()).isEqualByComparingTo(new BigDecimal("10.00"));
-        assertThat(list.get(0).getSharePercent()).isEqualByComparingTo(new BigDecimal("10"));
-    }
-
-    // -------------------- UPDATE --------------------
-
-    @Test
-    @DisplayName("PUT /shares/{id} (shareValue) → 200 และอัปเดตจริง")
-    void update_ok_with_value_persists() throws Exception {
-        // สร้างก่อน 1 รายการ
-        var created = shareRepo.save(buildShare(itemId, otherId, new BigDecimal("5.00"), null));
-
-        mvc.perform(put(BASE + "/{shareId}", expenseId, itemId, created.getId())
-                        .with(asAdmin(adminId))
-                        .param("shareValue", "22.22"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
-
-        var updated = shareRepo.findById(created.getId()).orElseThrow();
-        assertThat(updated.getShareValue()).isEqualByComparingTo(new BigDecimal("22.22"));
-        assertThat(updated.getSharePercent()).isNull();
-    }
-
-    @Test
-    @DisplayName("PUT /shares/{id} (sharePercent=8) → 200 และ value ควรเป็น 8.00 (ของ 100)")
-    void update_ok_with_percent_persists() throws Exception {
-        var created = shareRepo.save(buildShare(itemId, otherId, new BigDecimal("5.00"), null));
-
-        mvc.perform(put(BASE + "/{shareId}", expenseId, itemId, created.getId())
-                        .with(asAdmin(adminId))
-                        .param("sharePercent", "8"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
-
-        var updated = shareRepo.findById(created.getId()).orElseThrow();
-        assertThat(updated.getShareValue()).isEqualByComparingTo(new BigDecimal("8.00"));
-        assertThat(updated.getSharePercent()).isEqualByComparingTo(new BigDecimal("8"));
-    }
-
-    @Test
-    @DisplayName("PUT /shares/{id} → 404 เมื่อ share ไม่อยู่ใต้ expense/item ที่กำหนด")
-    void update_not_found_wrong_scope() throws Exception {
-        Group gRef = groupRepo.findById(groupId).orElseThrow();
-        User meRef = userRepo.findById(meId).orElseThrow();  // หรือ getReferenceById(meId)
-
-        Expense exp2 = new Expense();
-        exp2.setGroup(gRef);
-        exp2.setTitle("Another");
-        exp2.setStatus(ExpenseStatus.OPEN);
-        exp2.setType(ExpenseType.CUSTOM);
-        exp2.setCreatedAt(LocalDateTime.now());
-        exp2.setAmount(new BigDecimal("50.00"));
-        exp2.setPayer(meRef);                                // <-- ใส่ payer ทุกครั้ง
-        long exp2Id = expenseRepo.save(exp2).getId();
-
-        ExpenseItem it2 = new ExpenseItem();
-        it2.setExpense(exp2);
-        it2.setName("OtherItem");
-        it2.setAmount(new BigDecimal("50.00"));
-        long it2Id = itemRepo.save(it2).getId();
-
-        var alienShare = shareRepo.save(buildShare(it2Id, otherId, new BigDecimal("1.00"), null));
-
-        mvc.perform(put(BASE + "/{shareId}", expenseId, itemId, alienShare.getId())
-                        .with(asAdmin(adminId))
-                        .param("shareValue", "9.99"))
-                .andExpect(status().isForbidden());
-    }
-
-
-    // -------------------- DELETE --------------------
-
-    @Test
-    @DisplayName("DELETE /shares/{id} → 204 และลบจริง")
-    void delete_ok_persists() throws Exception {
-        var created = shareRepo.save(buildShare(itemId, otherId, new BigDecimal("5.00"), null));
-        long sid = created.getId();
-
-        mvc.perform(delete(BASE + "/{shareId}", expenseId, itemId, sid)
-                        .with(asAdmin(adminId)))
-                .andExpect(status().isNoContent());
-
-        assertThat(shareRepo.findById(sid)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("DELETE /shares/{id} → 404 เมื่อไม่อยู่ใต้ expense/item ที่กำหนด")
-    void delete_not_found_wrong_scope() throws Exception {
-        Group gRef = groupRepo.findById(groupId).orElseThrow();
-        User meRef = userRepo.findById(meId).orElseThrow();
-
-        Expense exp2 = new Expense();
-        exp2.setGroup(gRef);
-        exp2.setTitle("Another");
-        exp2.setStatus(ExpenseStatus.OPEN);
-        exp2.setType(ExpenseType.CUSTOM);
-        exp2.setCreatedAt(LocalDateTime.now());
-        exp2.setAmount(new BigDecimal("50.00"));
-        exp2.setPayer(meRef);                                // <-- สำคัญ
-        long exp2Id = expenseRepo.save(exp2).getId();
-
-        ExpenseItem it2 = new ExpenseItem();
-        it2.setExpense(exp2);
-        it2.setName("OtherItem");
-        it2.setAmount(new BigDecimal("50.00"));
-        long it2Id = itemRepo.save(it2).getId();
-
-        var alienShare = shareRepo.save(buildShare(it2Id, otherId, new BigDecimal("1.00"), null));
-
-        mvc.perform(delete(BASE + "/{shareId}", expenseId, itemId, alienShare.getId())
-                        .with(asAdmin(adminId)))
-                .andExpect(status().isForbidden());
-    }
-
-    // -------- helper --------
-    private ExpenseItemShare buildShare(long itemId, long userId, BigDecimal value, BigDecimal percent) {
-        ExpenseItem item = itemRepo.findById(itemId).orElseThrow();
-        User u = userRepo.findById(userId).orElseThrow();
+    private ExpenseItemShare persistShare(long itemId, long userId, String thb, String percent) {
         ExpenseItemShare s = new ExpenseItemShare();
-        s.setExpenseItem(item);
-        s.setParticipant(u);
-        s.setShareValue(value);
-        s.setSharePercent(percent);
-        return s;
+        s.setExpenseItem(itemRepo.getReferenceById(itemId));
+        s.setParticipant(userRepo.getReferenceById(userId));
+
+        // เราคุมสเกล 6 ตำแหน่งให้สอดคล้องกับระบบใหม่
+        BigDecimal v = thb == null ? null : new BigDecimal(thb).setScale(SCALE, RM);
+        BigDecimal p = percent == null ? null : new BigDecimal(percent).setScale(SCALE, RM);
+
+        s.setShareValue(v);
+        s.setSharePercent(p);
+        s.setShareOriginalValue(v != null ? v : BigDecimal.ZERO.setScale(SCALE, RM));
+
+        return shareRepo.save(s);
+    }
+
+    @Test
+    @DisplayName("GET /shares → 200 (ลิสต์อาจว่าง) เมื่อมีสิทธิ์ (ADMIN)")
+    void list_ok_initially_empty() throws Exception {
+        mvc.perform(get(BASE, expenseId, thbItemId).with(asAdmin(adminId)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Nested
+    @DisplayName("ADD shares • ค่าเงินและเปอร์เซ็นต์")
+    class AddShares {
+
+        @Test
+        @DisplayName("POST (THB, shareValue=15.50) → 200 และ DB เก็บ THB=15.500000, percent=null")
+        void add_thb_value() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("shareValue", "15.50"))
+                    .andExpect(status().isOk());
+
+            var list = shareRepo.findByExpenseItem_Id(thbItemId);
+            assertThat(list).hasSize(1);
+            assertThat(list.get(0).getShareValue().toPlainString()).isEqualTo("15.500000");
+            assertThat(list.get(0).getSharePercent()).isNull();
+        }
+
+        @Test
+        @DisplayName("POST (THB, sharePercent=10) → 200 และ DB เก็บ THB=10.000000, percent=10.000000")
+        void add_thb_percent() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "10"))
+                    .andExpect(status().isOk());
+
+            var list = shareRepo.findByExpenseItem_Id(thbItemId);
+            assertThat(list).hasSize(1);
+            assertThat(list.get(0).getShareValue().toPlainString()).isEqualTo("10.000000");
+            assertThat(list.get(0).getSharePercent().toPlainString()).isEqualTo("10.000000");
+        }
+
+        @Test
+        @DisplayName("POST (USD, item=123.45, percent=10) → THB = 12.345000×36.25 = 447.656250")
+        void add_usd_percent_converts_to_thb() throws Exception {
+            long usdItemId = newItem("Item USD", "USD", "123.45");
+            mvc.perform(post(BASE, expenseId, usdItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "10"))
+                    .andExpect(status().isOk());
+
+            var s = shareRepo.findByExpenseItem_Id(usdItemId).get(0);
+            BigDecimal original = bd("12.345000");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
+        }
+
+        @Test
+        @DisplayName("POST (USD, shareValue=12.345) → ไม่ปัดเป็น 2 ตำแหน่ง แต่ใช้ 12.345000 × 36.25 = 447.656250")
+        void add_usd_value_round_and_convert() throws Exception {
+            long usdItemId = newItem("Item USD", "USD", "200.00");
+            mvc.perform(post(BASE, expenseId, usdItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("shareValue", "12.345"))
+                    .andExpect(status().isOk());
+
+            var s = shareRepo.findByExpenseItem_Id(usdItemId).get(0);
+            BigDecimal original = bd("12.345");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(s.getShareOriginalValue().toPlainString()).isEqualTo("12.345000");
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
+            assertThat(s.getSharePercent()).isNull();
+        }
+
+        @Test
+        @DisplayName("POST (JPY, item=800, percent=12.5) → original=100.000000 JPY → THB=25.000000")
+        void add_jpy_percent() throws Exception {
+            long jpyItemId = newItem("Item JPY", "JPY", "800.00");
+            mvc.perform(post(BASE, expenseId, jpyItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "12.5"))
+                    .andExpect(status().isOk());
+
+            var s = shareRepo.findByExpenseItem_Id(jpyItemId).get(0);
+            BigDecimal original = bd("100.00"); // 800 * 12.5%
+            BigDecimal expectedThb = mulThb(original, "0.25"); // 25.000000
+            assertThat(s.getShareOriginalValue().toPlainString()).isEqualTo("100.000000");
+            assertThat(s.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
+            assertThat(s.getSharePercent().toPlainString()).isEqualTo("12.500000");
+        }
+
+        @Test
+        @DisplayName("POST → 400 เมื่อไม่ส่งทั้ง shareValue และ sharePercent")
+        void add_missing_both() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("POST → 400 เมื่อ percent < 0 หรือ > 100 และเมื่อ percent ไม่ใช่ตัวเลข")
+        void add_percent_invalid_ranges() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "-0.01"))
+                    .andExpect(status().isBadRequest());
+
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "100.01"))
+                    .andExpect(status().isBadRequest());
+
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "abc"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("POST → 400 เมื่อขาด participantUserId")
+        void add_missing_participant() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("sharePercent", "10"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
+    @DisplayName("UPDATE shares • เปอร์เซ็นต์และค่าเงิน")
+    class UpdateShares {
+
+        @Test
+        @DisplayName("PUT (THB, new value=22.22) → 200 และ DB เก็บ THB=22.220000, percent=null")
+        void update_thb_value() throws Exception {
+            var created = persistShare(thbItemId, otherId, "5.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("shareValue", "22.22"))
+                    .andExpect(status().isOk());
+
+            var updated = shareRepo.findById(created.getId()).orElseThrow();
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo("22.220000");
+            assertThat(updated.getSharePercent()).isNull();
+        }
+
+        @Test
+        @DisplayName("PUT (THB, new percent=8) → 200 และ DB เก็บ THB=8.000000, percent=8.000000")
+        void update_thb_percent() throws Exception {
+            var created = persistShare(thbItemId, otherId, "5.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("sharePercent", "8"))
+                    .andExpect(status().isOk());
+
+            var updated = shareRepo.findById(created.getId()).orElseThrow();
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo("8.000000");
+            assertThat(updated.getSharePercent().toPlainString()).isEqualTo("8.000000");
+        }
+
+        @Test
+        @DisplayName("PUT (USD, item=200, value=12.345) → THB=12.345000×36.25=447.656250")
+        void update_usd_value_convert() throws Exception {
+            long usdItemId = newItem("To Update USD", "USD", "200.00");
+            var created = persistShare(usdItemId, otherId, "1.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, usdItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("shareValue", "12.345"))
+                    .andExpect(status().isOk());
+
+            var updated = shareRepo.findById(created.getId()).orElseThrow();
+            BigDecimal original = bd("12.345");
+            BigDecimal expectedThb = mulThb(original, "36.25"); // 447.656250
+            assertThat(updated.getShareOriginalValue().toPlainString()).isEqualTo("12.345000");
+            assertThat(updated.getShareValue().toPlainString()).isEqualTo(expectedThb.toPlainString());
+            assertThat(updated.getSharePercent()).isNull();
+        }
+
+        @Test
+        @DisplayName("PUT (missing both value & percent) → 400")
+        void update_missing_both() throws Exception {
+            var created = persistShare(thbItemId, otherId, "1.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("PUT → 400 เมื่อ percent < 0 หรือ > 100 และเมื่อ value/percent ไม่ใช่ตัวเลข")
+        void update_invalid_ranges_and_types() throws Exception {
+            var created = persistShare(thbItemId, otherId, "1.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("sharePercent", "-0.01"))
+                    .andExpect(status().isBadRequest());
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("sharePercent", "100.01"))
+                    .andExpect(status().isBadRequest());
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, created.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("shareValue", "xyz"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("PUT → 403 เมื่อ share ไม่อยู่ใต้ expense/item ที่กำหนด (ถูกปฏิเสธก่อนถึง service)")
+        void update_wrong_scope_403() throws Exception {
+            Group g = groupRepo.findById(groupId).orElseThrow();
+            User payer = userRepo.findById(meId).orElseThrow();
+            Expense otherExp = newExpenseWithGroup(g, payer, "Other");
+            ExpenseItem it2 = new ExpenseItem();
+            it2.setExpense(otherExp);
+            it2.setName("OtherItem");
+            it2.setAmount(new BigDecimal("50.00"));
+            it2.setCurrency("THB");
+            long it2Id = itemRepo.save(it2).getId();
+
+            var alienShare = persistShare(it2Id, otherId, "1.00", null);
+
+            mvc.perform(put(BASE + "/{shareId}", expenseId, thbItemId, alienShare.getId())
+                            .with(asAdmin(adminId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("shareValue", "9.99"))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE shares • ขอบเขตและผลกระทบ DB")
+    class DeleteShares {
+
+        @Test
+        @DisplayName("DELETE → 204 และลบจริง")
+        void delete_ok() throws Exception {
+            var created = persistShare(thbItemId, otherId, "5.00", null);
+            long sid = created.getId();
+
+            mvc.perform(delete(BASE + "/{shareId}", expenseId, thbItemId, sid)
+                            .with(asAdmin(adminId)))
+                    .andExpect(status().isNoContent());
+
+            assertThat(shareRepo.findById(sid)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("DELETE → 403 เมื่อ share ไม่อยู่ใต้ expense/item ที่กำหนด (ถูกปฏิเสธก่อนถึง service)")
+        void delete_wrong_scope_403() throws Exception {
+            Group g = groupRepo.findById(groupId).orElseThrow();
+            User payer = userRepo.findById(meId).orElseThrow();
+            Expense otherExp = newExpenseWithGroup(g, payer, "Other");
+            ExpenseItem it2 = new ExpenseItem();
+            it2.setExpense(otherExp);
+            it2.setName("OtherItem");
+            it2.setAmount(new BigDecimal("50.00"));
+            it2.setCurrency("THB");
+            long it2Id = itemRepo.save(it2).getId();
+
+            var alienShare = persistShare(it2Id, otherId, "1.00", null);
+
+            mvc.perform(delete(BASE + "/{shareId}", expenseId, thbItemId, alienShare.getId())
+                            .with(asAdmin(adminId)))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("SECURITY • สิทธิ์เข้าถึง")
+    class SecurityCases {
+
+        @Test
+        @DisplayName("USER outsider (นอกกลุ่ม) เรียก GET → 403")
+        void list_forbidden_for_outsider() throws Exception {
+            mvc.perform(get(BASE, expenseId, thbItemId).with(asUser(outsiderId)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("USER outsider เรียก POST → 403 (ไม่มีสิทธิ์ manage)")
+        void add_forbidden_for_outsider() throws Exception {
+            mvc.perform(post(BASE, expenseId, thbItemId)
+                            .with(asUser(outsiderId))
+                            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("participantUserId", String.valueOf(otherId))
+                            .param("sharePercent", "10"))
+                    .andExpect(status().isForbidden());
+        }
     }
 }

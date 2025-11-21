@@ -6,143 +6,182 @@ on:
   pull_request:
     branches: [ main ]
 
+# Prevents multiple runs on the same branch from colliding on ports
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: docker.io
   BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/smartsplit-frontend
+  # Common versions
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17'
+
+defaults:
+  run:
+    shell: powershell
 
 jobs:
-  test:
+  # ------------------------------------------------------------------
+  # JOB 1: UNIT TESTS (Fast feedback)
+  # ------------------------------------------------------------------
+  unit-test:
+    name: Unit Tests
     runs-on: self-hosted
-    name: Run Tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Test Backend
+        working-directory: ./backend
+        run: mvn test "-Dapp.jwt.secret=${{ secrets.APP_JWT_SECRET }}"
+
+# ------------------------------------------------------------------
+  # JOB 2: E2E TESTS (Dockerized)
+  # ------------------------------------------------------------------
+  e2e-test:
+    name: E2E Tests
+    runs-on: self-hosted
+    # needs: unit-test
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'  # Updated from 18 to 20
-        
-    - name: Install Frontend Dependencies
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
-        Remove-Item package-lock.json -ErrorAction SilentlyContinue
-        npm install --legacy-peer-deps
-        npm install --save-dev --legacy-peer-deps @types/jest @testing-library/jest-dom @testing-library/react @testing-library/user-event jest
-        
-    - name: Install Cypress
-      working-directory: ./frontend
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        npm install cypress --save-dev
-        
-    - name: Run Backend Unit Tests
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      env:
-        APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
-        SPRING_PROFILES_ACTIVE: test
-      run: |
-        cd backend
-        $jwtSecret = $env:APP_JWT_SECRET
-        mvn test "-Dapp.jwt.secret=$jwtSecret" -DskipITs=true
-        
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      # --- CLEANUP OLD RUNS ---
+      - name: Cleanup Previous Containers
+        run: docker compose down -v --remove-orphans
+        continue-on-error: true
 
-  build-and-push:
-    runs-on: self-hosted
-    name: Build and Push Docker Images
-    needs: test
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Verify Docker is Running
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $maxAttempts = 10
-        $attempt = 0
-        while ($attempt -lt $maxAttempts) {
-          try {
-            docker info | Out-Null
-            Write-Host "Docker is running"
-            break
-          } catch {
-            $attempt++
-            Write-Host "Waiting for Docker to start... (Attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 5
-          }
-        }
-        if ($attempt -eq $maxAttempts) {
-          Write-Error "Docker failed to start"
-          exit 1
-        }
-      
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
-    - name: Build Backend Image
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker build -t "${backendImage}:latest" -t "${backendImage}:${gitSha}" ./backend
-        
-    - name: Build Frontend Image
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker build -t "${frontendImage}:latest" -t "${frontendImage}:${gitSha}" ./frontend
-        
-    - name: Push Backend to Docker Hub
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker push "${backendImage}:latest"
-        docker push "${backendImage}:${gitSha}"
-        
-    - name: Push Frontend to Docker Hub
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        $gitSha = "${{ github.sha }}"
-        docker push "${frontendImage}:latest"
-        docker push "${frontendImage}:${gitSha}"
+      # --- START ENVIRONMENT ---
+      - name: Start Docker Environment
+        env:
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+          MYSQL_ROOT_PASSWORD: smartsplit_test_password
+          MYSQL_DATABASE: smartsplit-db
+        run: |
+          Write-Host "Building and Starting Services..."
+          docker compose up -d --build
 
-  deploy:
-    needs: build-and-push
-    runs-on: self-hosted
+      # --- WAIT FOR HEALTH ---
+      - name: Wait for Services
+        timeout-minutes: 5
+        run: |
+          npm install -g wait-on
+          Write-Host "Waiting for Backend (8081) and Frontend (8080)..."
+          # We wait for localhost because ports are mapped to the Host
+          npx wait-on tcp:127.0.0.1:8081 tcp:127.0.0.1:8080 --timeout 300000
+
+      # --- ENSURE NGINX DNS RESOLUTION ---
+      - name: Restart Frontend for DNS Resolution
+        run: |
+          Write-Host "Restarting frontend to ensure nginx resolves backend DNS..."
+          docker compose restart frontend
+          Start-Sleep -Seconds 5
+          npx wait-on http://127.0.0.1:8080 --timeout 60000
+
+      # --- SEED TEST DATA ---
+      - name: Seed Test Data
+        run: |
+          Write-Host "Seeding test data into database..."
+          Get-Content cypress/seed-data.sql | docker exec -i devops-lab-02-db-1 mysql -uroot -psmartsplit_test_password "smartsplit-db"
+
+      # --- RUN TEST ---
+      - name: Run Cypress Tests
+        uses: cypress-io/github-action@v6
+        with:
+          browser: chrome
+        env:
+          # Cypress (on Host) talks to Frontend (on Host Port 8080)
+          CYPRESS_BASE_URL: http://localhost:8080
+
+      # --- DEBUG LOGS (If Failure) ---
+      - name: Dump Docker Logs
+        if: failure()
+        run: docker compose logs
+
+      # --- ARTIFACTS ---
+      - name: Upload Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-evidence
+          path: |
+            frontend/cypress/screenshots
+            frontend/cypress/videos
+          if-no-files-found: ignore
+
+      # --- TEARDOWN ---
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
+  # ------------------------------------------------------------------
+  # JOB 3: BUILD & DEPLOY
+  # ------------------------------------------------------------------
+  build-and-deploy:
+    name: Build & Deploy
+    needs: [unit-test, e2e-test]
     if: github.ref == 'refs/heads/main'
+    runs-on: self-hosted
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Update Kubernetes Deployments
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        $backendImage = "${{ env.BACKEND_IMAGE }}"
-        $frontendImage = "${{ env.FRONTEND_IMAGE }}"
-        kubectl set image deployment/backend backend="${backendImage}:latest" -n smartsplit
-        kubectl set image deployment/frontend frontend="${frontendImage}:latest" -n smartsplit
-        
-    - name: Wait for Rollout
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        kubectl rollout status deployment/backend -n smartsplit --timeout=300s
-        kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
-        
-    - name: Verify Deployment
-      shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
-      run: |
-        kubectl get pods -n smartsplit
-        Write-Host 'Deployment completed successfully!'
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Images
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          # Build Backend
+          docker build -t "${{ env.BACKEND_IMAGE }}:latest" -t "${{ env.BACKEND_IMAGE }}:${{ env.SHA }}" ./backend
+          docker push "${{ env.BACKEND_IMAGE }}:latest"
+          docker push "${{ env.BACKEND_IMAGE }}:${{ env.SHA }}"
+
+          # Build Frontend
+          docker build -t "${{ env.FRONTEND_IMAGE }}:latest" -t "${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}" ./frontend
+          docker push "${{ env.FRONTEND_IMAGE }}:latest"
+          docker push "${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}"
+
+      - name: Deploy to Kubernetes
+        run: |
+          $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+          $sha = "${{ github.sha }}"
+          
+          # Update Images
+          kubectl set image deployment/backend backend="${{ env.BACKEND_IMAGE }}:$sha" -n smartsplit
+          kubectl set image deployment/frontend frontend="${{ env.FRONTEND_IMAGE }}:$sha" -n smartsplit
+          
+          # Force rollout via annotation
+          kubectl patch deployment backend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
+          kubectl patch deployment frontend -n smartsplit -p "{`"spec`":{`"template`":{`"metadata`":{`"annotations`":{`"deployment.kubernetes.io/revision-time`":`"$timestamp`"}}}}}"
+          
+          # Wait for status
+          kubectl rollout status deployment/backend -n smartsplit --timeout=300s
+          kubectl rollout status deployment/frontend -n smartsplit --timeout=300s
