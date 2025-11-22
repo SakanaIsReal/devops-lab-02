@@ -21,16 +21,16 @@ Expense Splitting & Group Bill Management
 
 ## **URLs**
 
-* **Live Demo / Application:** `<link>`
-* **Presentation Slide:** `<link>`
-* **GitHub Repository:** `<link>` (Private)
+* **Presentation Slide:** `https://www.canva.com/design/DAG5CrWAUoY/hhazJEsr8HGm74hoX_pB4Q/view?utm_content=DAG5CrWAUoY&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc2f685d6aa`
+* **GitHub Repository:** `https://github.com/SakanaIsReal/devops-lab-02` (Private)
+* **Notion Workflows:** `https://github.com/SakanaIsReal/devops-lab-02`
 
 ---
 
 ## **Team Members**
 
 * Krittanon Chongklahan
-* Saisawat
+* Jirayu Saisawat 
 * Jutichot Phenpan
 * Navadol Somboonkul
 * Wattanachai Boonchai
@@ -237,7 +237,7 @@ devops-lab-02/
 ## **Contributors — devops-lab-02**
 
 * Krittanon Chongklahan
-* Saisawat
+* Jirayu Saisawat
 * Jutichot Phenpan
 * Navadol Somboonkul
 * Wattanachai Boonchai
